@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import math
 import faiss
 import gc
+import chardet
 
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -53,6 +54,14 @@ class DocumentIngestor:
             cache_dir=str(self.data_dir / "cache"),
             api_keys=api_keys
         )
+
+        self.common_encodings = [
+            'utf-8', 
+            'utf-8-sig',  # UTF-8 with BOM
+            'iso-8859-1',
+            'cp1252',     # Windows-1252
+            'latin1'
+        ]
         
         # Ensure directories exist
         self.vector_dir.mkdir(parents=True, exist_ok=True)
@@ -71,6 +80,49 @@ class DocumentIngestor:
         except Exception as e:
             self.logger.error(f"Error processing batch: {str(e)}")
             return [], [], []
+        
+    def _detect_encoding(self, file_path: Path) -> str:
+        """Detect the file encoding using chardet."""
+        # Read a sample of the file to detect encoding
+        with open(file_path, 'rb') as file:
+            raw_data = file.read(10000)  # Read first 10KB
+            result = chardet.detect(raw_data)
+            confidence = result['confidence']
+            encoding = result['encoding']
+            
+            self.logger.info(f"Detected encoding for {file_path.name}: {encoding} (confidence: {confidence:.2f})")
+            return encoding if confidence > 0.7 else None
+        
+    def _read_csv_with_encoding(self, file_path: Path) -> pd.DataFrame:
+        """Try reading CSV file with different encodings."""
+        errors = []
+        
+        # First try detected encoding
+        detected_encoding = self._detect_encoding(file_path)
+        if detected_encoding:
+            try:
+                return pd.read_csv(file_path, encoding=detected_encoding)
+            except Exception as e:
+                errors.append(f"Detected encoding ({detected_encoding}) failed: {str(e)}")
+
+        # Try common encodings
+        for encoding in self.common_encodings:
+            try:
+                return pd.read_csv(file_path, encoding=encoding)
+            except Exception as e:
+                errors.append(f"{encoding} failed: {str(e)}")
+                continue
+
+        # If all attempts fail, try with the most permissive encoding and error handling
+        try:
+            return pd.read_csv(file_path, encoding='iso-8859-1', on_bad_lines='skip')
+        except Exception as e:
+            errors.append(f"Final attempt with iso-8859-1 failed: {str(e)}")
+            
+        # If everything fails, raise an exception with the error history
+        raise ValueError(f"Failed to read {file_path.name} with all attempted encodings:\n" + "\n".join(errors))
+
+
 
     def _setup_logger(self) -> logging.Logger:
         """Set up logging configuration."""
@@ -87,6 +139,8 @@ class DocumentIngestor:
             log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             c_handler.setFormatter(log_format)
             f_handler.setFormatter(log_format)
+            c_handler.setLevel(logging.WARNING)
+            f_handler.setLevel(logging.INFO)
 
             logger.addHandler(c_handler)
             logger.addHandler(f_handler)
@@ -122,63 +176,82 @@ class DocumentIngestor:
             self.logger.info(f"Processing CSV file: {csv_file}")
 
             try:
-                # Try reading with utf-8 encoding first
-                df = pd.read_csv(csv_file, encoding='utf-8')
-            except UnicodeDecodeError:
-                # If utf-8 fails, try with iso-8859-1
-                self.logger.warning(f"utf-8 decode error for {csv_file}, trying iso-8859-1")
-                df = pd.read_csv(csv_file, encoding='iso-8859-1')
-
-        # Check for both DOI and URL columns
-            
-            # Check for both DOI and URL columns
-            doi_columns = ['DOI', 'doi']
-            url_columns = ['ArticleURL', 'URL', 'FullTextURL']
-            
-            available_doi_columns = [col for col in doi_columns if col in df.columns]
-            available_url_columns = [col for col in url_columns if col in df.columns]
-
-            if not (available_doi_columns or available_url_columns):
-                self.logger.warning(f"No DOI or URL columns found in {csv_file}")
-                continue
-
-            for _, row in df.iterrows():
-                # Try DOI first
-                doi = None
-                for col in available_doi_columns:
-                    if pd.notna(row.get(col)):
-                        doi = str(row[col]).strip()
-                        break
+                df = self._read_csv_with_encoding(csv_file)
+                self.logger.info(f"Successfully read {csv_file.name}")
                 
-                # If no DOI, try URL
-                url = None
-                if not doi:
-                    for col in available_url_columns:
-                        if pd.notna(row.get(col)):
-                            url = str(row[col]).strip()
-                            break
+                # Count rows before filtering
+                initial_rows = len(df)
                 
-                if not (doi or url):
-                    self.logger.warning("No valid DOI or URL found for row")
+                # Remove rows with all NaN values
+                df = df.dropna(how='all')
+                
+                # Remove rows where all string columns are empty strings
+                string_cols = df.select_dtypes(include=['object']).columns
+                df = df[~(df[string_cols] == '').all(axis=1)]
+                
+                # Log if any rows were removed
+                final_rows = len(df)
+                if final_rows < initial_rows:
+                    self.logger.info(f"Removed {initial_rows - final_rows} empty or invalid rows from {csv_file.name}")
+
+                # Check for both DOI and URL columns
+                doi_columns = ['DOI', 'doi']
+                url_columns = ['ArticleURL', 'URL', 'FullTextURL']
+                
+                available_doi_columns = [col for col in doi_columns if col in df.columns]
+                available_url_columns = [col for col in url_columns if col in df.columns]
+
+                if not (available_doi_columns or available_url_columns):
+                    self.logger.warning(f"No DOI or URL columns found in {csv_file}")
                     continue
 
-                article = {
-                    'identifier': doi if doi else url,
-                    'type': 'doi' if doi else 'url',
-                    'metadata': {
-                        'title': row.get('Title', ''),
-                        'authors': row.get('Authors', ''),
-                        'year': row.get('Year', ''),
-                        'source': row.get('Source', ''),
-                        'abstract': row.get('Abstract', '')
-                    }
-                }
-                articles.append(article)
+                for _, row in df.iterrows():
+                    # Try DOI first
+                    doi = None
+                    for col in available_doi_columns:
+                        if pd.notna(row.get(col)):
+                            doi = str(row[col]).strip()
+                            break
+                    
+                    # If no DOI, try URL
+                    url = None
+                    if not doi:
+                        for col in available_url_columns:
+                            if pd.notna(row.get(col)):
+                                url = str(row[col]).strip()
+                                break
+                    
+                    if not (doi or url):
+                        continue
 
+                    # Clean metadata values
+                    metadata = {
+                        'title': str(row.get('Title', '')).strip(),
+                        'authors': str(row.get('Authors', '')).strip(),
+                        'year': str(row.get('Year', '')).strip(),
+                        'source': str(row.get('Source', '')).strip(),
+                        'abstract': str(row.get('Abstract', '')).strip()
+                    }
+                    
+                    # Remove any empty metadata fields
+                    metadata = {k: v for k, v in metadata.items() if v and v.lower() != 'nan'}
+
+                    article = {
+                        'identifier': doi if doi else url,
+                        'type': 'doi' if doi else 'url',
+                        'metadata': metadata
+                    }
+                    articles.append(article)
+
+            except Exception as e:
+                self.logger.error(f"Error processing {csv_file}: {str(e)}")
+                continue
+
+        self.logger.info(f"Successfully processed {len(articles)} articles from CSV files")
         return articles
 
     def fetch_article_content(self, article: Dict) -> Optional[str]:
-        """Fetch full text content for an article."""
+        """Fetch full text content for an article with improved error handling."""
         try:
             if article['type'] == 'doi':
                 content = self.article_fetcher.fetch_from_doi(article['identifier'])
@@ -186,27 +259,51 @@ class DocumentIngestor:
                 content = self.article_fetcher.fetch_from_url(article['identifier'])
             
             if content:
-                # If content already includes metadata, return as is
-                if content.strip().startswith('Title:') or content.strip().startswith('Abstract:'):
-                    return content
+                # If content already includes metadata, verify it has required fields
+                if content.strip().startswith('Title:'):
+                    # Verify the content has basic structure we expect
+                    required_fields = ['Title:', 'Abstract:', 'Full Text:']
+                    has_required_fields = all(field in content for field in required_fields)
+                    if has_required_fields:
+                        return content
+                
+                # If we get here, either content doesn't have metadata or is missing required fields
+                # Build content with metadata from article dict, safely accessing fields
+                metadata = article.get('metadata', {})
+                formatted_content = []
+                
+                # Add each metadata field, checking for None or empty values
+                if metadata.get('title'):
+                    formatted_content.append(f"Title: {metadata['title']}")
+                else:
+                    formatted_content.append("Title: [No title available]")
                     
-                # Otherwise, format with metadata
-                return f"""
-                Title: {article['metadata']['title']}
-                Authors: {article['metadata']['authors']}
-                Year: {article['metadata']['year']}
-                Source: {article['metadata']['source']}
+                if metadata.get('authors'):
+                    formatted_content.append(f"Authors: {metadata['authors']}")
                 
-                Abstract:
-                {article['metadata']['abstract']}
+                if metadata.get('year'):
+                    formatted_content.append(f"Year: {metadata['year']}")
+                    
+                if metadata.get('source'):
+                    formatted_content.append(f"Source: {metadata['source']}")
                 
-                Full Text:
-                {content}
-                """
+                # Add abstract and content sections
+                formatted_content.append("\nAbstract:")
+                if metadata.get('abstract'):
+                    formatted_content.append(metadata['abstract'])
+                else:
+                    formatted_content.append("[No abstract available]")
+                
+                formatted_content.append("\nFull Text:")
+                formatted_content.append(content)
+                
+                return "\n".join(formatted_content)
+                
+            # Skip article if no content retrieved
             return None
-            
+                
         except Exception as e:
-            self.logger.error(f"Error fetching content for {article['identifier']}: {str(e)}")
+            self.logger.error(f"Error fetching content for {article['identifier']}: {str(e)}", exc_info=True)
             return None
 
     def create_documents_from_articles(self, articles: List[Dict]) -> List[Document]:
@@ -333,7 +430,7 @@ class DocumentIngestor:
     ) -> FAISS:
         """Complete ingestion pipeline with batch processing optimization."""
         try:
-            documents = []
+            all_documents = []
             target_dir = Path(source_dir) if source_dir else self.data_dir
 
             self.logger.info(f"Starting document ingestion from: {target_dir}")
@@ -343,7 +440,7 @@ class DocumentIngestor:
             if pdf_files:
                 self.logger.info(f"Processing {len(pdf_files)} PDF files")
                 pdf_documents = self.load_pdfs(target_dir)
-                documents.extend(self.process_documents(pdf_documents))
+                all_documents.extend(self.process_documents(pdf_documents))
                 gc.collect()  # Release memory after PDF processing
 
             # Process CSVs
@@ -353,21 +450,35 @@ class DocumentIngestor:
                 articles = self.process_csv_files(target_dir)
                 
                 if articles:
-                    self.logger.info(f"Creating documents from {len(articles)} articles")
-                    # Process articles in batches to manage memory
-                    for i in range(0, len(articles), self.batch_size):
-                        batch = articles[i:i + self.batch_size]
-                        article_documents = self.create_documents_from_articles(batch)
-                        documents.extend(article_documents)
+                    total_articles = len(articles)
+                    total_batches = (total_articles + self.batch_size - 1) // self.batch_size
+                    self.logger.info(f"Processing {total_articles} articles in {total_batches} batches of size {self.batch_size}")
+                    
+                    documents_from_articles = []
+                    for batch_num in range(total_batches):
+                        start_idx = batch_num * self.batch_size
+                        end_idx = min((batch_num + 1) * self.batch_size, total_articles)
+                        batch = articles[start_idx:end_idx]
+                        
+                        self.logger.info(f"Processing batch {batch_num + 1}/{total_batches} ({len(batch)} articles)")
+                        batch_documents = self.create_documents_from_articles(batch)
+                        if batch_documents:  # Check if we got valid documents back
+                            documents_from_articles.extend(batch_documents)
+                            print(f"Completed batch {batch_num + 1}/{total_batches}. "
+                                        f"Total documents so far: {len(documents_from_articles)}")
+                            self.logger.info(f"Completed batch {batch_num + 1}/{total_batches}. "
+                                        f"Total documents so far: {len(documents_from_articles)}")
                         gc.collect()  # Release memory after each batch
+                    
+                    all_documents.extend(documents_from_articles)
 
-            if not documents:
+            if not all_documents:
                 raise ValueError(f"No documents found in {target_dir}")
 
-            self.logger.info(f"Total documents to process: {len(documents)}")
+            self.logger.info(f"Total documents to process: {len(all_documents)}")
 
             # Create vector store with batch processing
-            vectorstore = self.create_vectorstore(documents, collection_name)
+            vectorstore = self.create_vectorstore(all_documents, collection_name)
 
             return vectorstore
 
