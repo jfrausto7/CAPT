@@ -67,11 +67,11 @@ def main():
         # Process collections
         collections = {
             'articles': 'data/raw/articles',
-            # 'guidelines_ketamine': 'data/raw/guidelines/Ketamine',
-            # 'guidelines_mdma': 'data/raw/guidelines/MDMA',
-            # 'guidelines_psilocybin': 'data/raw/guidelines/Psilocybin',
-            # 'guidelines_LSD': 'data/raw/guidelines/LSD',
-            # 'guidelines_general': 'data/raw/guidelines/General'
+            'guidelines_ketamine': 'data/raw/guidelines/Ketamine',
+            'guidelines_mdma': 'data/raw/guidelines/MDMA',
+            'guidelines_psilocybin': 'data/raw/guidelines/Psilocybin',
+            'guidelines_LSD': 'data/raw/guidelines/LSD',
+            'guidelines_general': 'data/raw/guidelines/General'
         }
         
         for collection_name, source_dir in collections.items():
