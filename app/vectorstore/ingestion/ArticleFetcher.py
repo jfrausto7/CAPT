@@ -7,6 +7,7 @@ from typing import Optional, Dict
 import doi2bib.crossref as crossref
 import logging
 from urllib.parse import urlparse
+import os
 
 class ArticleFetcher:
     """Handles fetching full text content from various sources."""
@@ -24,7 +25,7 @@ class ArticleFetcher:
         # Initialize API keys
         self.api_keys = api_keys or {}
         if not self.api_keys.get('elsevier'):
-            self.api_keys['elsevier'] = "836373b117a9a87cbbca087555a7c42f"  # Default key
+            self.api_keys['elsevier'] = os.getenv("ELSEVIER_API_KEY")
             
         self.logger = logging.getLogger('ArticleFetcher')
         
