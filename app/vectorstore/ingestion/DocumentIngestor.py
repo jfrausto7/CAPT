@@ -1,60 +1,82 @@
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 import logging
 from langchain_together import TogetherEmbeddings
 import pandas as pd
 from pathlib import Path
 import time
-import torch
 from tqdm import tqdm
+import numpy as np
+from concurrent.futures import ThreadPoolExecutor
+import math
+import faiss
+import gc
 
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import FAISS
 
 from ArticleFetcher import ArticleFetcher
 
 # Get the directory where DocumentIngestor.py is located
 SCRIPT_DIR = Path(__file__).parent.absolute()
-print(torch.cuda.is_available())
 
 class DocumentIngestor:
     def __init__(
         self,
         data_dir: str = "data/raw",
         vector_dir: str = "app/vectorstore/store",
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        chunk_size: int = 2000,
+        chunk_overlap: int = 100,
+        batch_size: int = 32,
+        num_workers: int = 4,
         api_keys: Dict[str, str] = None
     ):
-        """Initialize the document ingestor."""
+        """Initialize the document ingestor with optimized batch processing."""
         self.data_dir = Path(data_dir)
         self.vector_dir = Path(vector_dir)
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.batch_size = batch_size
+        self.num_workers = num_workers
         self.logger = self._setup_logger()
         self.embeddings = TogetherEmbeddings()
+        
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             length_function=len,
             add_start_index=True,
         )
+        
         self.article_fetcher = ArticleFetcher(
             cache_dir=str(self.data_dir / "cache"),
             api_keys=api_keys
         )
-        # Ensure the vector directory exists
+        
+        # Ensure directories exist
         self.vector_dir.mkdir(parents=True, exist_ok=True)
-        # Create cache directory for ArticleFetcher
         (self.data_dir / "cache").mkdir(parents=True, exist_ok=True)
+
+    def _process_batch(self, batch: List[Document]) -> Tuple[List[np.ndarray], List[str], List[Dict]]:
+        """Process a batch of documents in parallel."""
+        try:
+            texts = [doc.page_content for doc in batch]
+            metadatas = [doc.metadata for doc in batch]
+            
+            # Generate embeddings for the batch
+            embeddings = self.embeddings.embed_documents(texts)
+            
+            return embeddings, texts, metadatas
+        except Exception as e:
+            self.logger.error(f"Error processing batch: {str(e)}")
+            return [], [], []
 
     def _setup_logger(self) -> logging.Logger:
         """Set up logging configuration."""
         logger = logging.getLogger('DocumentIngestor')
         logger.setLevel(logging.INFO)
 
-        # Ensure logs directory exists
         log_dir = SCRIPT_DIR / 'logs'
         log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -217,59 +239,134 @@ class DocumentIngestor:
         self,
         documents: List[Document],
         collection_name: str
-    ) -> Chroma:
-        """Create or update vector store with documents."""
+    ) -> FAISS:
+        """Create or update vector store with documents using optimized batch processing."""
         persist_directory = self.vector_dir / collection_name
-        self.logger.info(f"Creating vector store in {persist_directory}")
+        self.logger.info(f"Creating FAISS vector store in {persist_directory}")
 
-        # Initialize the vector store without documents first
-        vectorstore = Chroma(embedding_function=self.embeddings, persist_directory=str(persist_directory), collection_name=collection_name)
+        # Check if there's an existing index
+        index_path = persist_directory / "index.faiss"
+        store_path = persist_directory / "store.pkl"
         
-        # Add documents one by one with a progress bar
-        for document in tqdm(documents, desc="Adding documents to vector store"):
-            vectorstore.add_documents([document])
-
-        vectorstore.persist()
-        self.logger.info("Vector store created and persisted")
+        if index_path.exists() and store_path.exists():
+            self.logger.info("Loading existing FAISS index")
+            vectorstore = FAISS.load_local(
+                str(persist_directory),
+                self.embeddings,
+                index_name="index"
+            )
+            
+            # Process documents in batches with periodic saves
+            for i in tqdm(range(0, len(documents), self.batch_size), desc="Processing document batches"):
+                batch = documents[i:i + self.batch_size]
+                vectorstore.add_documents(batch)
+                
+                # Save periodically and clear memory
+                if (i // self.batch_size) % 10 == 0:
+                    vectorstore.save_local(str(persist_directory))
+                    gc.collect()  # Release memory
+                
+        else:
+            self.logger.info("Creating new FAISS index")
+            
+            # Calculate embedding dimension
+            sample_embedding = self.embeddings.embed_documents([documents[0].page_content])[0]
+            dim = len(sample_embedding)
+            
+            # Initialize FAISS index
+            index = faiss.IndexFlatL2(dim)
+            
+            # Process documents in batches using ThreadPoolExecutor
+            total_batches = math.ceil(len(documents) / self.batch_size)
+            processed_vectors = []
+            processed_texts = []
+            processed_metadatas = []
+            
+            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+                futures = []
+                
+                # Submit batches for processing
+                for i in range(0, len(documents), self.batch_size):
+                    batch = documents[i:i + self.batch_size]
+                    futures.append(executor.submit(self._process_batch, batch))
+                
+                # Process results as they complete
+                for future in tqdm(futures, total=total_batches, desc="Processing batches"):
+                    embeddings, texts, metadatas = future.result()
+                    if embeddings:  # Only process if batch was successful
+                        processed_vectors.extend(embeddings)
+                        processed_texts.extend(texts)
+                        processed_metadatas.extend(metadatas)
+                    
+                    # Periodically add to index and clear memory
+                    if len(processed_vectors) >= self.batch_size * 10:
+                        vectors_array = np.array(processed_vectors).astype('float32')
+                        index.add(vectors_array)
+                        processed_vectors = []
+                        gc.collect()  # Release memory
+            
+            # Add any remaining vectors
+            if processed_vectors:
+                vectors_array = np.array(processed_vectors).astype('float32')
+                index.add(vectors_array)
+            
+            # Create FAISS vectorstore
+            vectorstore = FAISS(
+                self.embeddings.embed_query,
+                index,
+                processed_texts,
+                processed_metadatas,
+                normalize_L2=True
+            )
+        
+        # Ensure directory exists and save
+        persist_directory.mkdir(parents=True, exist_ok=True)
+        vectorstore.save_local(str(persist_directory))
+        
+        self.logger.info("FAISS vector store created and persisted")
         return vectorstore
 
     def ingest_documents(
         self,
         collection_name: str,
-        source_dir: Optional[str] = None
-    ) -> Chroma:
-        """Complete ingestion pipeline."""
+        source_dir: Optional[str] = None,
+    ) -> FAISS:
+        """Complete ingestion pipeline with batch processing optimization."""
         try:
             documents = []
             target_dir = Path(source_dir) if source_dir else self.data_dir
 
-            self.logger.info(f"Checking directory: {target_dir}")
+            self.logger.info(f"Starting document ingestion from: {target_dir}")
 
             # Process PDFs
             pdf_files = list(target_dir.glob("**/*.pdf"))
-            self.logger.info(f"Found {len(pdf_files)} PDF files")
-
             if pdf_files:
+                self.logger.info(f"Processing {len(pdf_files)} PDF files")
                 pdf_documents = self.load_pdfs(target_dir)
                 documents.extend(self.process_documents(pdf_documents))
+                gc.collect()  # Release memory after PDF processing
 
             # Process CSVs
             csv_files = list(target_dir.glob("**/*.csv"))
-            self.logger.info(f"Found {len(csv_files)} CSV files")
-
-            articles = self.process_csv_files(target_dir)
-            self.logger.info(f"Processed {len(articles)} articles from CSV files")
-
-            if articles:
-                article_documents = self.create_documents_from_articles(articles)
-                documents.extend(article_documents)
+            if csv_files:
+                self.logger.info(f"Processing {len(csv_files)} CSV files")
+                articles = self.process_csv_files(target_dir)
+                
+                if articles:
+                    self.logger.info(f"Creating documents from {len(articles)} articles")
+                    # Process articles in batches to manage memory
+                    for i in range(0, len(articles), self.batch_size):
+                        batch = articles[i:i + self.batch_size]
+                        article_documents = self.create_documents_from_articles(batch)
+                        documents.extend(article_documents)
+                        gc.collect()  # Release memory after each batch
 
             if not documents:
                 raise ValueError(f"No documents found in {target_dir}")
 
             self.logger.info(f"Total documents to process: {len(documents)}")
 
-            # Create vector store
+            # Create vector store with batch processing
             vectorstore = self.create_vectorstore(documents, collection_name)
 
             return vectorstore
