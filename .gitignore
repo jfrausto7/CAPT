@@ -1,4 +1,4 @@
-data/raw
+data/raw*
 data/transcripts
 __pycache__
 .vscode
@@ -6,3 +6,5 @@ __pycache__
 *.pickle
 *.bin
 *.log
+*.faiss
+*.pkl
