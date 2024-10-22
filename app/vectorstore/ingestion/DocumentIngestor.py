@@ -372,6 +372,14 @@ class DocumentIngestor:
             
             # Initialize FAISS index
             index = faiss.IndexFlatL2(dim)
+
+            # Initialize FAISS vectorstore
+            vectorstore = FAISS(
+                index=index,
+                docstore=None,
+                index_to_docstore_id=None,
+                embedding_function=self.embeddings
+            )
             
             # Process documents in batches using ThreadPoolExecutor
             total_batches = math.ceil(len(documents) / self.batch_size)
@@ -395,17 +403,19 @@ class DocumentIngestor:
                         processed_texts.extend(texts)
                         processed_metadatas.extend(metadatas)
                     
-                    # Periodically add to index and clear memory
+                    # Periodically add to index, clear memory, and save
                     if len(processed_vectors) >= self.batch_size * 10:
                         vectors_array = np.array(processed_vectors).astype('float32')
                         index.add(vectors_array)
                         processed_vectors = []
                         gc.collect()  # Release memory
+                        vectorstore.save_local(str(persist_directory))
             
             # Add any remaining vectors
             if processed_vectors:
                 vectors_array = np.array(processed_vectors).astype('float32')
                 index.add(vectors_array)
+                vectorstore.save_local(str(persist_directory))
             
             # Create FAISS vectorstore
             vectorstore = FAISS(
