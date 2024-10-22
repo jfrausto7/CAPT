@@ -343,7 +343,7 @@ class DocumentIngestor:
 
         # Check if there's an existing index
         index_path = persist_directory / "index.faiss"
-        store_path = persist_directory / "store.pkl"
+        store_path = persist_directory / "index.pkl"
         
         if index_path.exists() and store_path.exists():
             self.logger.info("Loading existing FAISS index")
@@ -353,8 +353,14 @@ class DocumentIngestor:
                 index_name="index"
             )
             
-            # Process documents in batches with periodic saves
-            for i in tqdm(range(0, len(documents), self.batch_size), desc="Processing document batches"):
+            # Calculate starting point
+            start_batch = 0
+            start_index = start_batch * self.batch_size
+            
+            # Process documents in batches with periodic saves, starting from specified batch
+            for i in tqdm(range(start_index, len(documents), self.batch_size), 
+                        initial=start_batch,
+                        desc=f"Processing document batches (resuming from batch {start_batch})"):
                 batch = documents[i:i + self.batch_size]
                 vectorstore.add_documents(batch)
                 
