@@ -97,7 +97,8 @@ class MultiVectorstoreRetriever(BaseRetriever):
                     self._vectorstores[collection] = FAISS.load_local(
                         str(collection_path),
                         self.embeddings,
-                        index_name="index"
+                        index_name="index",
+                        allow_dangerous_deserialization=True
                     )
                     self._logger.info(f"Loaded vectorstore: {collection}")
                 except Exception as e:

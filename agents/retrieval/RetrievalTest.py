@@ -20,7 +20,6 @@ def create_retrieval_chain(
     
     qa_chain = RetrievalQA.from_chain_type(
         llm=model,
-        chain_type="stuff",  # or "map_reduce" for longer contexts
         retriever=retriever,
         return_source_documents=True  # Include source docs in response
     )
@@ -45,12 +44,15 @@ qa_chain = create_retrieval_chain(
 # answer = response['result']
 # sources = response['source_documents']
 
+prompt1 = "How many individuals have received MDMA in phase 1 or phase 2 clinical trials without any unexpected drug-related serious adverse events?" # Over 1100
+prompt2 = "How many administrations of psilocybin with psychological support produces antidepressant effects in patients with cancer and in those with treatment-resistant depression?" # 1-2
+prompt3 = "In 'Effects of Psilocybin-Assisted Therapy on Major Depressive Disorder: A Randomized Clinical Trial', what was the age range of participants? Where did the study take place?" #  Johns Hopkins University School of Medicine. The age range of participants was 21-75 years.
+prompt4 = "What is a substantial public health burden?" # Major Depressive Disorder (MDD)
+
 # Query specific collections
 response = qa_chain.invoke(
-    "How many individuals have received MDMA in phase 1 or phase 2 clinical trials without any unexpected drug-related serious adverse events?",
+    prompt3,
     collections=['articles']
 )
-
-# Expected answer is: Over 1100. Source: https://pubmed.ncbi.nlm.nih.gov/27067625/
 
 print(response['result'])
