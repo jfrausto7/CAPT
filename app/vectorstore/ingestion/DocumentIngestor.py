@@ -3,7 +3,6 @@ import logging
 from langchain_together import TogetherEmbeddings
 import pandas as pd
 from pathlib import Path
-import time
 from tqdm import tqdm
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +15,7 @@ from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 from langchain_community.vectorstores import FAISS
+from langchain_community.docstore.in_memory import InMemoryDocstore
 
 from ArticleFetcher import ArticleFetcher
 
@@ -325,7 +325,7 @@ class DocumentIngestor:
                             }
                         ))
                     # Rate limiting
-                    time.sleep(1)
+                    # time.sleep(1)
             except Exception as e:
                 self.logger.error(f"Error creating documents from articles: {str(e)}")
                 # Continue processing other articles in case of errors
@@ -350,24 +350,62 @@ class DocumentIngestor:
             vectorstore = FAISS.load_local(
                 str(persist_directory),
                 self.embeddings,
-                index_name="index"
+                index_name="index",
+                allow_dangerous_deserialization=True
             )
             
             # Calculate starting point
             start_batch = 0
             start_index = start_batch * self.batch_size
+
+            # Process documents in batches using ThreadPoolExecutor
+            remaining_batches = math.ceil((len(documents) - start_index) / self.batch_size)
+            processed_vectors = []
+            processed_texts = {}
+            index_to_docstore_id = {}
+            unique_id_counter = len(vectorstore.docstore._dict)  # Initialize with existing docstore size
             
-            # Process documents in batches with periodic saves, starting from specified batch
-            for i in tqdm(range(start_index, len(documents), self.batch_size), 
-                        initial=start_batch,
-                        desc=f"Processing document batches (resuming from batch {start_batch})"):
-                batch = documents[i:i + self.batch_size]
-                vectorstore.add_documents(batch)
+            with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+                futures = []
                 
-                # Save periodically and clear memory
-                if (i // self.batch_size) % 10 == 0:
-                    vectorstore.save_local(str(persist_directory))
-                    gc.collect()  # Release memory
+                # Submit batches for processing
+                for i in range(start_index, len(documents), self.batch_size):
+                    batch = documents[i:i + self.batch_size]
+                    futures.append(executor.submit(self._process_batch, batch))
+                
+                # Process results as they complete
+                for future in tqdm(futures, 
+                                total=remaining_batches, 
+                                initial=start_batch,
+                                desc=f"Processing document batches (resuming from batch {start_batch})"):
+                    embeddings, texts, metadatas = future.result()
+                    if embeddings:  # Only process if batch was successful
+                        processed_vectors.extend(embeddings)
+                        for text, metadata in zip(texts, metadatas):
+                            doc_id = unique_id_counter
+                            processed_texts[doc_id] = Document(page_content=text, metadata=metadata)
+                            index_to_docstore_id[unique_id_counter] = doc_id
+                            unique_id_counter += 1
+                    
+                    # Periodically add to index, clear memory, and save
+                    if len(processed_vectors) >= self.batch_size * 100:
+                        vectors_array = np.array(processed_vectors).astype('float32')
+                        vectorstore.index.add(vectors_array)
+                        vectorstore.docstore.add(processed_texts)
+                        vectorstore.index_to_docstore_id.update(index_to_docstore_id)
+                        processed_vectors = []
+                        processed_texts = {}
+                        index_to_docstore_id = {}
+                        gc.collect()  # Release memory
+                        vectorstore.save_local(str(persist_directory))
+            
+            # Add any remaining vectors
+            if processed_vectors:
+                vectors_array = np.array(processed_vectors).astype('float32')
+                vectorstore.index.add(vectors_array)
+                vectorstore.docstore.add(processed_texts)
+                vectorstore.index_to_docstore_id.update(index_to_docstore_id)
+                vectorstore.save_local(str(persist_directory))
                 
         else:
             self.logger.info("Creating new FAISS index")
@@ -380,18 +418,21 @@ class DocumentIngestor:
             index = faiss.IndexFlatL2(dim)
 
             # Initialize FAISS vectorstore
+            docstore = InMemoryDocstore()
+            index_to_docstore_id = {}
             vectorstore = FAISS(
                 index=index,
-                docstore=None,
-                index_to_docstore_id=None,
-                embedding_function=self.embeddings
+                docstore=docstore,
+                index_to_docstore_id=index_to_docstore_id,
+                embedding_function=self.embeddings,
+                normalize_L2=True
             )
             
             # Process documents in batches using ThreadPoolExecutor
             total_batches = math.ceil(len(documents) / self.batch_size)
             processed_vectors = []
-            processed_texts = []
-            processed_metadatas = []
+            processed_texts = {}
+            unique_id_counter = 0
             
             with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
                 futures = []
@@ -406,36 +447,32 @@ class DocumentIngestor:
                     embeddings, texts, metadatas = future.result()
                     if embeddings:  # Only process if batch was successful
                         processed_vectors.extend(embeddings)
-                        processed_texts.extend(texts)
-                        processed_metadatas.extend(metadatas)
+                        for text, metadata in zip(texts, metadatas):
+                            doc_id = unique_id_counter
+                            processed_texts[doc_id] = Document(page_content=text, metadata=metadata)
+                            index_to_docstore_id[unique_id_counter] = doc_id
+                            unique_id_counter += 1
                     
                     # Periodically add to index, clear memory, and save
-                    if len(processed_vectors) >= self.batch_size * 10:
+                    if len(processed_vectors) >= self.batch_size * 100:
                         vectors_array = np.array(processed_vectors).astype('float32')
-                        index.add(vectors_array)
+                        vectorstore.index.add(vectors_array)
+                        vectorstore.docstore.add(processed_texts)
+                        vectorstore.index_to_docstore_id.update(index_to_docstore_id)
                         processed_vectors = []
+                        processed_texts = {}
+                        index_to_docstore_id = {}
                         gc.collect()  # Release memory
                         vectorstore.save_local(str(persist_directory))
             
             # Add any remaining vectors
             if processed_vectors:
                 vectors_array = np.array(processed_vectors).astype('float32')
-                index.add(vectors_array)
+                vectorstore.index.add(vectors_array)
+                vectorstore.docstore.add(processed_texts)
+                vectorstore.index_to_docstore_id.update(index_to_docstore_id)
                 vectorstore.save_local(str(persist_directory))
-            
-            # Create FAISS vectorstore
-            vectorstore = FAISS(
-                self.embeddings.embed_query,
-                index,
-                processed_texts,
-                processed_metadatas,
-                normalize_L2=True
-            )
-        
-        # Ensure directory exists and save
-        persist_directory.mkdir(parents=True, exist_ok=True)
-        vectorstore.save_local(str(persist_directory))
-        
+
         self.logger.info("FAISS vector store created and persisted")
         return vectorstore
 
