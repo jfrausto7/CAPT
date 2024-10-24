@@ -355,11 +355,11 @@ class DocumentIngestor:
             )
             
             # Calculate starting point
-            start_batch = 0
+            start_batch = 34300
             start_index = start_batch * self.batch_size
 
             # Process documents in batches using ThreadPoolExecutor
-            remaining_batches = math.ceil((len(documents) - start_index) / self.batch_size)
+            total_batches = math.ceil(len(documents) / self.batch_size)
             processed_vectors = []
             processed_texts = {}
             index_to_docstore_id = {}
@@ -375,7 +375,7 @@ class DocumentIngestor:
                 
                 # Process results as they complete
                 for future in tqdm(futures, 
-                                total=remaining_batches, 
+                                total=total_batches, 
                                 initial=start_batch,
                                 desc=f"Processing document batches (resuming from batch {start_batch})"):
                     embeddings, texts, metadatas = future.result()
@@ -388,7 +388,7 @@ class DocumentIngestor:
                             unique_id_counter += 1
                     
                     # Periodically add to index, clear memory, and save
-                    if len(processed_vectors) >= self.batch_size * 100:
+                    if len(processed_vectors) >= self.batch_size * 1000:
                         vectors_array = np.array(processed_vectors).astype('float32')
                         vectorstore.index.add(vectors_array)
                         vectorstore.docstore.add(processed_texts)
@@ -454,7 +454,7 @@ class DocumentIngestor:
                             unique_id_counter += 1
                     
                     # Periodically add to index, clear memory, and save
-                    if len(processed_vectors) >= self.batch_size * 100:
+                    if len(processed_vectors) >= self.batch_size * 1000:
                         vectors_array = np.array(processed_vectors).astype('float32')
                         vectorstore.index.add(vectors_array)
                         vectorstore.docstore.add(processed_texts)
