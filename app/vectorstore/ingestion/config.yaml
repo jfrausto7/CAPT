@@ -19,3 +19,7 @@ collections:
   guidelines:
     path: "data/raw/guidelines"
     types: ["pdf"]
+
+  general_knowledge:
+    path: "data/raw/general"
+    types: ["pdf"]
