@@ -63,35 +63,52 @@ const TherapistChat: React.FC = () => {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const addMessage = (message: Message) => {
+    setMessages(prev => [...prev, message]);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (input.trim()) {
-      setIsThinking(true);
       setIsLandingPage(false);
+      
+      // Immediately add user message
+      const userMessage: Message = {
+        key: `user-${Date.now()}`,
+        text: input.trim(),
+        sender: 'user',
+        timestamp: new Date(),
+      };
+      addMessage(userMessage);
+      
+      // Clear input and show thinking animation
+      setInput('');
+      setIsThinking(true);
       
       try {
         const response = await sendMessage({
-          text: input.trim(),
+          text: userMessage.text,
           conversation_id: conversationId || undefined,
         });
         
         setConversationId(response.conversation_id);
         
-        const userMessage: Message = {
-          ...response.message,
-          key: `user-${Date.now()}`,
-          timestamp: new Date(response.message.timestamp),
-        };
+        // Add bot message after response
         const botMessage: Message = {
           ...response.response,
           key: `bot-${Date.now()}`,
           timestamp: new Date(response.response.timestamp),
         };
-        
-        setMessages(prev => [...prev, userMessage, botMessage]);
-        setInput('');
+        addMessage(botMessage);
       } catch (error) {
         console.error('Error sending message:', error);
+        // Optionally add an error message to the chat
+        addMessage({
+          key: `error-${Date.now()}`,
+          text: "Sorry, I couldn't process your message. Please try again.",
+          sender: 'therapist',
+          timestamp: new Date(),
+        });
       } finally {
         setIsThinking(false);
       }
@@ -172,7 +189,8 @@ const TherapistChat: React.FC = () => {
               key="chat"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className={`flex-grow flex flex-col ${darkMode ? 'bg-gray-900' : 'bg-light-grey'}`}>
+              className={`flex-grow flex flex-col ${darkMode ? 'bg-gray-900' : 'bg-light-grey'}`}
+            >
               <div className={`flex-grow overflow-auto p-4 pb-32 pt-24 ${darkMode ? 'text-gray-100' : 'text-gray-800'}`}>
                 <AnimatePresence>
                   {messages.map((message) => (
