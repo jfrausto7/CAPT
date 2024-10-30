@@ -18,15 +18,12 @@ interface MessageResponse {
 
 export const sendMessage = async (messageRequest: MessageRequest): Promise<MessageResponse> => {
   try {
-    const response = await fetch('http://10.19.212.74:8000/api/messages', {
+    const response = await fetch('http://localhost:8000/api/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        // Add any auth headers if needed
-        // 'Authorization': 'Bearer your-token-here'
       },
-      // credentials: '*', // Include cookies if needed
       mode: 'cors', // Explicitly state CORS mode
       body: JSON.stringify(messageRequest),
     });
