@@ -18,7 +18,7 @@ class RateLimiter:
         self.max_requests = max_requests_per_minute
         self.window_size = 60  # seconds
         self.requests = []
-        self.min_pause = 12.0  # Minimum 12 seconds between requests (5 per minute to be safe)
+        self.min_pause = 12.0  # Minimum 20 seconds between requests (5 per minute to be safe)
         self.last_request_time = 0
     
     def wait_if_needed(self):
@@ -54,14 +54,15 @@ def make_api_request(qa_chain, prompt, rate_limiter, collections):
     """Make API request with retry logic"""
     rate_limiter.wait_if_needed()
     try:
-        return qa_chain.invoke(prompt, collections=collections)
+        qa_chain.retriever.with_collections(collections)    # collections is ['articles']
+        return qa_chain.invoke({"query": prompt})
     except Exception as e:
         print(f"\nAPI request failed: {str(e)}")
         raise
 
 def run_evaluation():
     # Initialize rate limiter (3 requests per minute to be safe)
-    rate_limiter = RateLimiter(max_requests_per_minute=3)
+    rate_limiter = RateLimiter(max_requests_per_minute=5)
 
     # Initialize the model with retries
     model = Together(
@@ -78,11 +79,11 @@ def run_evaluation():
     results = []
 
     # Read CSV file first to get total count
-    with open("evaluation/RAG/rag_eval_qa.csv", "r") as csv_file:
+    with open("evaluation/datasets/rag_eval_qa.csv", "r") as csv_file:
         total_questions = sum(1 for _ in csv.DictReader(csv_file))
 
     # Read and evaluate with progress tracking
-    with open("evaluation/RAG/rag_eval_qa.csv", "r") as csv_file:
+    with open("evaluation/datasets/rag_eval_qa.csv", "r") as csv_file:
         reader = csv.DictReader(csv_file)
         for idx, row in enumerate(reader, 1):
             prompt = row["Prompt"]
@@ -115,7 +116,7 @@ def run_evaluation():
                 print(f"Score: {score:.2f}")
 
                 # Save intermediate results after each successful evaluation
-                save_results(results, "evaluation/RAG/evaluation_results_intermediate.csv")
+                save_results(results, "evaluation/results/evaluation_results_intermediate.csv")
 
             except Exception as e:
                 print(f"\nError processing question {idx}: {str(e)}")
@@ -129,7 +130,7 @@ def run_evaluation():
                     'detailed_scores': {'text_match': 0.0, 'number_similarity': 0.0}
                 }
                 results.append(result)
-                save_results(results, "evaluation/RAG/evaluation_results_intermediate.csv")
+                save_results(results, "evaluation/results/evaluation_results_intermediate.csv")
                 continue
 
     # Calculate and save final metrics
@@ -175,7 +176,7 @@ def save_final_results(results, evaluator):
     print(f"Median score: {np.median(scores):.2f}")
     
     # Save final results
-    save_results(results, "evaluation/RAG/evaluation_results_final.csv")
+    save_results(results, "evaluation/results/evaluation_results_final.csv")
     print(f"\nFinal results saved to evaluation_results_final.csv")
 
 class AnswerEvaluator:
@@ -324,7 +325,7 @@ class AnswerEvaluator:
 def create_retrieval_chain(vector_dir: str, model):
     retriever = MultiVectorstoreRetriever(
         vector_dir=vector_dir,
-        k=4,
+        k=10,
         score_threshold=0.7,
         show_progress=True
     )

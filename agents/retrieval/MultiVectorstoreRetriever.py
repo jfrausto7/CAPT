@@ -33,6 +33,7 @@ class MultiVectorstoreRetriever(BaseRetriever):
     # Private attributes
     _vectorstores: Dict[str, FAISS] = PrivateAttr(default_factory=dict)
     _logger: logging.Logger = PrivateAttr()
+    _current_collections: Optional[List[str]] = PrivateAttr(default=None)
 
     def __init__(
         self,
@@ -58,6 +59,15 @@ class MultiVectorstoreRetriever(BaseRetriever):
         self._logger = self._setup_logger()
         self._vectorstores = {}
         self._load_vectorstores(collections)
+
+    def __call__(self, query: str) -> List[Document]:
+        """Support using the retriever as a callable."""
+        return self.get_relevant_documents(query, collections=self._current_collections)
+        
+    def with_collections(self, collections: List[str]) -> 'MultiVectorstoreRetriever':
+        """Set collections for the next retrieval."""
+        self._current_collections = collections
+        return self
 
     def _setup_logger(self) -> logging.Logger:
         """Set up logging configuration."""
@@ -127,11 +137,10 @@ class MultiVectorstoreRetriever(BaseRetriever):
     def get_relevant_documents(
         self,
         query: str,
-        collections: Optional[List[str]] = None,
         **kwargs
     ) -> List[Document]:
         """Get relevant documents from all or specified collections."""
-        scored_docs = self.get_scored_documents(query, collections)
+        scored_docs = self.get_scored_documents(query, self._current_collections)
         return [sd.document for sd in scored_docs]
 
     def get_scored_documents(
