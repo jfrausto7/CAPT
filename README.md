@@ -9,8 +9,19 @@ An LLM-powered conversational agent designed to enhance psychedelic therapy thro
 ## Setup
 1. Clone the repository
 2. Install dependencies: `pip install -r requirements.txt`
-3. Set up environment variables (see `config.py`) and run `app/vectorstore/ingestion/ingest.py` OR download vectorstore data from [here](https://drive.google.com/drive/folders/1p_Dxqy4LHGOnOL5tOfzUJleVDUNv_tk6?usp=drive_link)
-4. Run the application: `python main.py`
+3. Set up environment variables (see `config.py`) and run `app/vectorstore/ingestion/ingest.py` OR download vectorstore data from [here](https://drive.google.com/drive/folders/1tr58rSSOrSb2ByypsnJ3wJ_YApLiRUGb?usp=sharing). Ensure that the directory structure looks like:
+```
+|--app
+|----vectorstore
+|------store
+|--------articles
+|--------guidelines_mdma
+|--------guidelines_LSD
+|--------guidelines_general
+|--------...
+
+```
+5. Run the application: `python main.py`
 
 ## Usage
 [TODO]
