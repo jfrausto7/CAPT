@@ -71,7 +71,9 @@ def main():
             'guidelines_mdma': 'data/raw/guidelines/MDMA',
             'guidelines_psilocybin': 'data/raw/guidelines/Psilocybin',
             'guidelines_LSD': 'data/raw/guidelines/LSD',
-            'guidelines_general': 'data/raw/guidelines/General'
+            'guidelines_general': 'data/raw/guidelines/General',
+            'guidelines_integration': 'data/raw/guidelines/Integration',
+            'general_knowledge' : 'data/raw/general'
         }
         
         for collection_name, source_dir in collections.items():
