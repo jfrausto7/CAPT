@@ -1,0 +1,25 @@
+# Directory paths
+data_dir: "data/raw"
+vector_dir: "app/vectorstore/store"
+cache_dir: "data/cache"
+
+# Processing parameters
+chunk_size: 1000
+chunk_overlap: 200
+
+# Rate limiting
+request_delay: 1  # seconds between requests
+
+# Collections to process
+collections:
+  articles:
+    path: "data/raw/articles"
+    types: ["csv"]
+  
+  guidelines:
+    path: "data/raw/guidelines"
+    types: ["pdf"]
+
+  general_knowledge:
+    path: "data/raw/general"
+    types: ["pdf"]
