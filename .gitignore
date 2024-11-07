@@ -1,5 +1,4 @@
 data/raw*
-data/transcripts
 __pycache__
 .vscode
 *.sqlite3
@@ -8,3 +7,4 @@ __pycache__
 *.log
 *.faiss
 *.pkl
+*.pdf
