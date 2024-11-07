@@ -16,7 +16,7 @@ def run_servers():
     # Start frontend server
     print("Starting frontend server...")
     os.chdir("frontend/capt")
-    frontend_process = subprocess.Popen(["npm", "start"])
+    frontend_process = subprocess.Popen("npm start", shell=True)
     
     try:
         # Wait for both processes

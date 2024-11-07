@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from typing import List, Optional, Dict
 
 from agents.TherapyAgent import TherapyAgent
+from agents.llm_integration import IntentClassifier
 from app.chat.Message import Message
 from app.chat.Conversation import Conversation
 from app.safety_mechanisms import SafetyMechanisms
@@ -13,8 +14,8 @@ class ConversationManager:
     def __init__(self, db_path: str = "data/cache_therapy_chat.db"):
         self.db_path = db_path
         self.init_db()
-        self.setup_llm()
-        self.safety_filter = SafetyMechanisms(self.llm)
+        self.setup_agents()
+        self.safety_filter = SafetyMechanisms(self.therapy_agent)
         self.is_terminated = False
 
     def init_db(self):
@@ -37,11 +38,18 @@ class ConversationManager:
                 )
             """)
 
-    def setup_llm(self):
-        self.llm = TherapyAgent(
+    def setup_agents(self):
+        # Initialize both agents
+        self.therapy_agent = TherapyAgent(
             model="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
             temperature=0.3,
             max_tokens=512
+        )
+        
+        self.intent_classifier = IntentClassifier(
+            model="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+            temperature=0.3,
+            max_tokens=64
         )
 
     @contextmanager
@@ -68,10 +76,10 @@ class ConversationManager:
         )
         return [self._row_to_message(row) for row in cursor.fetchall()]
 
-    def format_prompt(self, conversation_history: List[Message], user_message: str) -> str:
+    def format_therapy_prompt(self, conversation_history: List[Message], user_message: str, is_escalated: bool = False) -> str:
         history = "\n".join([
             f"{msg.sender}: {msg.text}" 
-            for msg in conversation_history[-5:]  # Last 5 messages for context
+            for msg in conversation_history[-5:]
         ])
         
         prompt = f"""You are CAPT, a compassionate and skilled therapist specializing in psychedelic-assisted therapy. 
@@ -85,11 +93,17 @@ class ConversationManager:
 
         Respond as the therapist:"""
         
+        if is_escalated:
+            prompt = f"""IMPORTANT: This conversation requires additional care and sensitivity.
+            Maintain a calm, supportive tone. Focus on safety and well-being.
+            If appropriate, gently suggest professional resources or support services.
+            
+            {prompt}"""
+            
         return prompt
 
-    async def get_llm_response(self, conversation_history: List[Message], user_message: str) -> str:
-        
-        # create a Message and Conversation object for safety processing
+    async def get_response(self, conversation_history: List[Message], user_message: str) -> str:
+        # Create message and conversation objects for safety processing
         current_message = Message(
             text=user_message,
             sender="user",
@@ -103,7 +117,7 @@ class ConversationManager:
             updated_at=datetime.now()
         )
         
-        # process message through safety filter
+        # Process message through safety filter
         is_escalated, is_terminated = self.safety_filter.process_message(current_message, current_conversation)
         
         if is_terminated or self.is_terminated:
@@ -115,22 +129,28 @@ class ConversationManager:
             
             \n These services are available 24/7 and have trained professionals who can provide the immediate support you need."""
 
-        prompt = self.format_prompt(conversation_history, user_message)
+        # If not terminated, process through intent classifier
+        intent_response = await self.intent_classifier.complete(user_message)
         
-        # If escalated, modify the prompt to include safety-focused instructions
-        if is_escalated:
-            prompt = f"""IMPORTANT: This conversation requires additional care and sensitivity.
-            Maintain a calm, supportive tone. Focus on safety and well-being.
-            If appropriate, gently suggest professional resources or support services.
+        # Handle different response types based on intent classification
+        if isinstance(intent_response, dict) and 'answer' in intent_response:
+            # For RAG-based responses, still check if we need to add safety messaging
+            response = intent_response['answer']
+            if is_escalated:
+                response += "\n\nIf you're feeling overwhelmed or need immediate support, please don't hesitate to reach out to mental health professionals or emergency services."
+            return response
             
-            {prompt}"""
+        elif intent_response is None:
+            # Clinical trial recruitment case
+            return "I'll help you find relevant clinical trials. [Clinical trial API integration pending]"
             
-        response = await self.llm.complete(prompt)
-        return response.strip()
+        else:
+            # Default to therapy agent with safety-aware prompt
+            prompt = self.format_therapy_prompt(conversation_history, user_message, is_escalated)
+            return (await self.therapy_agent.complete(prompt)).strip()
 
     async def create_message(self, text: str, conversation_id: Optional[str] = None) -> Dict:
         with self.get_db() as conn:
-            # Get or create conversation
             conv_id = conversation_id or str(uuid.uuid4())
             current_time = datetime.now()
             
@@ -140,7 +160,6 @@ class ConversationManager:
                 (conv_id, current_time, current_time)
             )
             
-            # Create user message
             user_message = Message(
                 text=text,
                 sender="user",
@@ -152,23 +171,20 @@ class ConversationManager:
                 (str(uuid.uuid4()), conv_id, user_message.text, user_message.sender, user_message.timestamp)
             )
             
-            # Get conversation history and LLM response
             messages = self.get_conversation_messages(conn, conv_id)
-            llm_response_text = await self.get_llm_response(messages, text)
+            response_text = await self.get_response(messages, text)
             
-            # Create therapist message
-            therapist_message = Message(
-                text=llm_response_text,
-                sender="therapist",
+            response_message = Message(
+                text=response_text,
+                sender="assistant",
                 timestamp=datetime.now()
             )
             
             cursor.execute(
                 "INSERT INTO messages (id, conversation_id, text, sender, timestamp) VALUES (?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), conv_id, therapist_message.text, therapist_message.sender, therapist_message.timestamp)
+                (str(uuid.uuid4()), conv_id, response_message.text, response_message.sender, response_message.timestamp)
             )
             
-            # Update conversation timestamp
             cursor.execute(
                 "UPDATE conversations SET updated_at = ? WHERE id = ?",
                 (datetime.now(), conv_id)
@@ -179,7 +195,7 @@ class ConversationManager:
             return {
                 "conversation_id": conv_id,
                 "message": user_message.model_dump(),
-                "response": therapist_message.model_dump()
+                "response": response_message.model_dump()
             }
 
     def get_conversation(self, conversation_id: str) -> Optional[Conversation]:
