@@ -3,27 +3,19 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from typing import List, Optional, Dict
-from pydantic import BaseModel
 
 from agents.TherapyAgent import TherapyAgent
-
-# Pydantic models for type safety
-class Message(BaseModel):
-    text: str
-    sender: str
-    timestamp: datetime = datetime.now()
-
-class Conversation(BaseModel):
-    id: str
-    messages: List[Message]
-    created_at: datetime
-    updated_at: datetime
+from app.chat.Message import Message
+from app.chat.Conversation import Conversation
+from app.safety_mechanisms import SafetyMechanisms
 
 class ConversationManager:
     def __init__(self, db_path: str = "data/cache_therapy_chat.db"):
         self.db_path = db_path
         self.init_db()
         self.setup_llm()
+        self.safety_filter = SafetyMechanisms(self.llm)
+        self.is_terminated = False
 
     def init_db(self):
         with self.get_db() as conn:
@@ -61,22 +53,26 @@ class ConversationManager:
         finally:
             conn.close()
 
-    def get_conversation_messages(self, conn, conversation_id: str) -> List[dict]:
+    def _row_to_message(self, row: sqlite3.Row) -> Message:
+        return Message(
+            text=row['text'],
+            sender=row['sender'],
+            timestamp=datetime.fromisoformat(row['timestamp'])
+        )
+
+    def get_conversation_messages(self, conn, conversation_id: str) -> List[Message]:
         cursor = conn.cursor()
         cursor.execute(
             "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp",
             (conversation_id,)
         )
-        return [dict(row) for row in cursor.fetchall()]
+        return [self._row_to_message(row) for row in cursor.fetchall()]
 
-    def format_prompt(self, conversation_history: List[dict], user_message: str) -> str:
-        # Format conversation history into a prompt
+    def format_prompt(self, conversation_history: List[Message], user_message: str) -> str:
         history = "\n".join([
-            f"{msg['sender']}: {msg['text']}" 
+            f"{msg.sender}: {msg.text}" 
             for msg in conversation_history[-5:]  # Last 5 messages for context
         ])
-
-        # TODO: DO NOT USE THIS PROMPT! IT WILL STILL OVERCHARGE (FIGURE OUT CONTEXT WINDOW LENGTH ABOVE.)
         
         prompt = f"""You are CAPT, a compassionate and skilled therapist specializing in psychedelic-assisted therapy. 
         Your responses should be empathetic, non-judgmental, and focused on creating a safe space for clients.
@@ -91,8 +87,44 @@ class ConversationManager:
         
         return prompt
 
-    async def get_llm_response(self, conversation_history: List[dict], user_message: str) -> str:
+    async def get_llm_response(self, conversation_history: List[Message], user_message: str) -> str:
+        
+        # create a Message and Conversation object for safety processing
+        current_message = Message(
+            text=user_message,
+            sender="user",
+            timestamp=datetime.now()
+        )
+
+        current_conversation = Conversation(
+            id="",
+            messages=conversation_history,
+            created_at=datetime.now(),
+            updated_at=datetime.now()
+        )
+        
+        # process message through safety filter
+        is_escalated, is_terminated = self.safety_filter.process_message(current_message, current_conversation)
+        
+        if is_terminated or self.is_terminated:
+            self.is_terminated = True
+            return """I need to pause our conversation here. Your safety is my top priority, and I'm concerned about what you've shared. Please immediately contact emergency services or a crisis hotline:
+            
+            \n National Suicide Prevention Lifeline: 988
+            \n Crisis Text Line: Text HOME to 741741
+            
+            \n These services are available 24/7 and have trained professionals who can provide the immediate support you need."""
+
         prompt = self.format_prompt(conversation_history, user_message)
+        
+        # If escalated, modify the prompt to include safety-focused instructions
+        if is_escalated:
+            prompt = f"""IMPORTANT: This conversation requires additional care and sensitivity.
+            Maintain a calm, supportive tone. Focus on safety and well-being.
+            If appropriate, gently suggest professional resources or support services.
+            
+            {prompt}"""
+            
         response = await self.llm.complete(prompt)
         return response.strip()
 
@@ -100,17 +132,19 @@ class ConversationManager:
         with self.get_db() as conn:
             # Get or create conversation
             conv_id = conversation_id or str(uuid.uuid4())
+            current_time = datetime.now()
             
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT OR IGNORE INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
-                (conv_id, datetime.now(), datetime.now())
+                (conv_id, current_time, current_time)
             )
             
             # Create user message
             user_message = Message(
                 text=text,
-                sender="user"
+                sender="user",
+                timestamp=current_time
             )
             
             cursor.execute(
@@ -125,7 +159,8 @@ class ConversationManager:
             # Create therapist message
             therapist_message = Message(
                 text=llm_response_text,
-                sender="therapist"
+                sender="therapist",
+                timestamp=datetime.now()
             )
             
             cursor.execute(
@@ -143,27 +178,27 @@ class ConversationManager:
             
             return {
                 "conversation_id": conv_id,
-                "message": user_message.dict(),
-                "response": therapist_message.dict()
+                "message": user_message.model_dump(),
+                "response": therapist_message.model_dump()
             }
 
-    def get_conversation(self, conversation_id: str) -> Optional[Dict]:
+    def get_conversation(self, conversation_id: str) -> Optional[Conversation]:
         with self.get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM conversations WHERE id = ?", (conversation_id,))
-            conversation = cursor.fetchone()
+            conversation_row = cursor.fetchone()
             
-            if not conversation:
+            if not conversation_row:
                 return None
                 
             messages = self.get_conversation_messages(conn, conversation_id)
             
-            return {
-                "id": conversation["id"],
-                "messages": messages,
-                "created_at": conversation["created_at"],
-                "updated_at": conversation["updated_at"]
-            }
+            return Conversation(
+                id=conversation_row["id"],
+                messages=messages,
+                created_at=datetime.fromisoformat(conversation_row["created_at"]),
+                updated_at=datetime.fromisoformat(conversation_row["updated_at"])
+            )
 
     def delete_conversation(self, conversation_id: str) -> bool:
         with self.get_db() as conn:

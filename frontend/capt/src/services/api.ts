@@ -23,10 +23,7 @@ export const sendMessage = async (messageRequest: MessageRequest): Promise<Messa
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        // Add any auth headers if needed
-        // 'Authorization': 'Bearer your-token-here'
       },
-      // credentials: '*', // Include cookies if needed
       mode: 'cors', // Explicitly state CORS mode
       body: JSON.stringify(messageRequest),
     });
