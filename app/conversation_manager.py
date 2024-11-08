@@ -1,11 +1,15 @@
 from datetime import datetime
 import sqlite3
+import time
 import uuid
 from contextlib import contextmanager
 from typing import List, Optional, Dict
+from langchain.chains import RetrievalQA
+from langchain_together import Together
 
 from agents.TherapyAgent import TherapyAgent
 from agents.llm_integration import IntentClassifier
+from agents.retrieval.MultiVectorstoreRetriever import MultiVectorstoreRetriever
 from app.chat.Message import Message
 from app.chat.Conversation import Conversation
 from app.safety_mechanisms import SafetyMechanisms
@@ -45,11 +49,23 @@ class ConversationManager:
             temperature=0.3,
             max_tokens=512
         )
+
+        self.retrieval_model = Together(
+            model="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+            temperature=0.3,
+            max_tokens=256
+        )
+
+        self.qa_chain = self.create_RAG_retrieval_chain(
+            vector_dir="app/vectorstore/store",
+            model=self.retrieval_model
+        )
         
         self.intent_classifier = IntentClassifier(
             model="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
             temperature=0.3,
-            max_tokens=64
+            max_tokens=64,
+            qa_chain=self.qa_chain
         )
 
     @contextmanager
@@ -132,20 +148,17 @@ class ConversationManager:
         # If not terminated, process through intent classifier
         intent_response = await self.intent_classifier.complete(user_message)
         
-        # Handle different response types based on intent classification
-        if isinstance(intent_response, dict) and 'answer' in intent_response:
+        # RAG
+        if intent_response is not None:
             # For RAG-based responses, still check if we need to add safety messaging
-            response = intent_response['answer']
+            response = intent_response['result']
             if is_escalated:
                 response += "\n\nIf you're feeling overwhelmed or need immediate support, please don't hesitate to reach out to mental health professionals or emergency services."
             return response
-            
-        elif intent_response is None:
-            # Clinical trial recruitment case
-            return "I'll help you find relevant clinical trials. [Clinical trial API integration pending]"
-            
+        # Default Fallback TherapyAgent
         else:
             # Default to therapy agent with safety-aware prompt
+            time.sleep(10)
             prompt = self.format_therapy_prompt(conversation_history, user_message, is_escalated)
             return (await self.therapy_agent.complete(prompt)).strip()
 
@@ -197,6 +210,29 @@ class ConversationManager:
                 "message": user_message.model_dump(),
                 "response": response_message.model_dump()
             }
+    
+    def create_RAG_retrieval_chain(
+        self,
+        vector_dir: str,
+        model,
+        show_progress: bool = True
+    ):
+        # Initialize retriever
+        retriever = MultiVectorstoreRetriever(
+            vector_dir=vector_dir,
+            k=4,  # Number of documents to retrieve per query
+            score_threshold=0.7,  # Minimum similarity score
+            show_progress=show_progress
+        )
+
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=model,
+            chain_type="stuff",  # or "map_reduce" for longer contexts
+            retriever=retriever,
+            return_source_documents=True  # Include source docs in response
+        )
+
+        return qa_chain
 
     def get_conversation(self, conversation_id: str) -> Optional[Conversation]:
         with self.get_db() as conn:
