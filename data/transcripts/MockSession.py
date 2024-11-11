@@ -1,44 +1,62 @@
 import csv
 from datetime import datetime
 import asyncio
+import time
 import uuid
+import random
 
 from agents.ClientAgent import ClientAgent
 from agents.TherapyAgent import TherapyAgent
 
 # Sample client personas from "Deliberate Practice in Psychedelic-Assisted Therapy"
 PERSONAS = [
-    """
-    Age: 35
-    Gender: Female
-    Occupation: Social Worker
-    Grief Duration: 8
-    Grief Feelings: Sadness, Guilt, Anger
-    Integration Goals: Find meaning, Improve relationships, Reduce anxiety
-    Attitude to Therapy: Cautiously optimistic
-    Strengths: Empathetic, Hardworking, Resilient
-    """,
-    """
-    Age: 42
-    Gender: Male
-    Occupation: Artist
-    Grief Duration: 14
-    Grief Feelings: Despair, Hopelessness, Confusion
-    Integration Goals: Reconnect with creativity, Improve self-worth, Find purpose
-    Attitude to Therapy: Skeptical but willing to try
-    Strengths: Imaginative, Sensitive, Introspective
-    """,
-    """
-    Age: 28
-    Gender: Non-binary
-    Occupation: Software Engineer
-    Grief Duration: 6
-    Grief Feelings: Anxiety, Loneliness, Emptiness
-    Integration Goals: Reduce social isolation, Improve self-acceptance, Find meaning
-    Attitude to Therapy: Nervous but hopeful
-    Strengths: Intelligent, Logical, Determined
-    """
+    """Age: 35
+Gender: Female
+Occupation: Social Worker
+Grief Duration: 8
+Grief Feelings: Sadness, Guilt, Anger
+Integration Goals: Find meaning, Improve relationships, Reduce anxiety
+Attitude to Therapy: Cautiously optimistic
+Strengths: Empathetic, Hardworking, Resilient""",
+
+    """Age: 42
+Gender: Male
+Occupation: Artist
+Grief Duration: 14
+Grief Feelings: Despair, Hopelessness, Confusion
+Integration Goals: Reconnect with creativity, Improve self-worth, Find purpose
+Attitude to Therapy: Skeptical but willing to try
+Strengths: Imaginative, Sensitive, Introspective""",
+
+    """Age: 28
+Gender: Non-binary
+Occupation: Software Engineer
+Grief Duration: 6
+Grief Feelings: Anxiety, Loneliness, Emptiness
+Integration Goals: Reduce social isolation, Improve self-acceptance, Find meaning
+Attitude to Therapy: Nervous but hopeful
+Strengths: Intelligent, Logical, Determined"""
 ]
+
+def format_therapy_prompt(conversation_history):
+    """Format conversation history into a prompt for the therapy agent."""
+    # Convert the last 5 messages into a formatted string
+    recent_messages = conversation_history[-5:] if len(conversation_history) > 5 else conversation_history
+    formatted_history = "\n".join([
+        f"{msg['sender']}: {msg['text']}"
+        for msg in recent_messages
+    ])
+    
+    prompt = f"""You are a compassionate and skilled therapist conducting an integration session 
+    after psychedelic-assisted therapy. Your role is to help the client process their experience 
+    and integrate insights into their daily life.
+
+    Previous conversation:
+    {formatted_history}
+
+    Provide a thoughtful and empathetic response as the therapist. ONLY PROVIDE THE RESPONSE ITSELF, NOTHING ELSE:"""
+    
+    return prompt
 
 async def run_mock_session(session_id: str, persona: str):
     """Run a single mock therapy session and save the transcript."""
@@ -48,7 +66,7 @@ async def run_mock_session(session_id: str, persona: str):
         model="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
         temperature=0.7,
         max_tokens=512,
-        persona_text=persona
+        persona_text=persona.strip()  # Ensure no extra whitespace
     )
 
     therapy_agent = TherapyAgent(
@@ -75,12 +93,21 @@ async def run_mock_session(session_id: str, persona: str):
         timestamp = datetime.now().isoformat()
         writer.writerow([session_id, timestamp, "therapist", opening])
     
+    # Initial conversation history entry
+    conversation_history.append({
+        "sender": "therapist",
+        "text": opening,
+        "timestamp": timestamp
+    })
+    
     # Simulate 5-7 exchanges
     num_exchanges = random.randint(5, 7)
     
     for _ in range(num_exchanges):
         # Get client response
         client_response = await client_agent.complete(conversation_history, opening)
+        print("CLIENT RESPONSE:")
+        print(client_response)
         timestamp = datetime.now().isoformat()
         
         # Save client response
@@ -89,10 +116,21 @@ async def run_mock_session(session_id: str, persona: str):
             writer.writerow([session_id, timestamp, "client", client_response])
         
         # Update conversation history
-        conversation_history.append({"sender": "client", "text": client_response, "timestamp": timestamp})
+        conversation_history.append({
+            "sender": "client",
+            "text": client_response,
+            "timestamp": timestamp
+        })
+        
+        # Format prompt for therapy agent
+        therapy_prompt = format_therapy_prompt(conversation_history)
         
         # Get therapist response
-        therapist_response = await therapy_agent.complete(conversation_history)
+        time.sleep(10)  # need this to avoid rate limiting
+        therapist_response = await therapy_agent.complete(therapy_prompt)
+        print("THERAPIST RESPONSE:")
+        print(therapist_response)
+        time.sleep(10)  # need this to avoid rate limiting
         timestamp = datetime.now().isoformat()
         
         # Save therapist response
@@ -101,7 +139,11 @@ async def run_mock_session(session_id: str, persona: str):
             writer.writerow([session_id, timestamp, "therapist", therapist_response])
         
         # Update conversation history
-        conversation_history.append({"sender": "therapist", "text": therapist_response, "timestamp": timestamp})
+        conversation_history.append({
+            "sender": "therapist",
+            "text": therapist_response,
+            "timestamp": timestamp
+        })
         
         # Set up next exchange
         opening = therapist_response
@@ -137,5 +179,4 @@ async def main():
     print("\nAll sessions completed. Transcripts saved to therapy_transcripts.csv")
 
 if __name__ == "__main__":
-    import random
     asyncio.run(main())

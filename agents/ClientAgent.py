@@ -20,28 +20,31 @@ class ClientProfile:
     strengths: List[str]
 
 class ClientAgent:
-    def __init__(self, model: str, temperature: float, max_tokens: int, persona_text):
+    def __init__(self, model: str, temperature: float, max_tokens: int, persona_text: str):
         self.agent = Together(model=model, temperature=temperature, max_tokens=max_tokens)
         self.profile = self.extract_profile_from_text(persona_text)
         self.messages: List[ClientMessage] = []
 
-    async def extract_profile_from_text(self, persona_text: str) -> ClientProfile:
-        # Use the LLM to extract the client profile information from the persona text
-        prompt = f"Extract the following information from the provided client persona text:\n\n{persona_text}\n\nOutput the information in this format:\n\nAge: <age>\nGender: <gender>\nOccupation: <occupation>\nGrief Duration: <grief_duration>\nGrief Feelings: <grief_feelings>\nIntegration Goals: <integration_goals>\nAttitude to Therapy: <attitude_to_therapy>\nStrengths: <strengths>"
-
-        response = await self.llm.agenerate([prompt])
+    def extract_profile_from_text(self, persona_text: str) -> ClientProfile:
+        """Extract profile information from structured text without using LLM"""
         profile_data = {}
-        for line in response[0][0].split('\n'):
+        
+        # Split the text into lines and process each line
+        for line in persona_text.strip().split('\n'):
             if ':' in line:
-                key, value = line.split(': ', 1)
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                # Handle list fields
                 if key == 'Grief Feelings':
-                    profile_data[key] = [feeling.strip() for feeling in value.split(',')]
+                    profile_data[key] = [item.strip() for item in value.split(',')]
                 elif key == 'Integration Goals':
-                    profile_data[key] = [goal.strip() for goal in value.split(',')]
+                    profile_data[key] = [item.strip() for item in value.split(',')]
                 elif key == 'Strengths':
-                    profile_data[key] = [strength.strip() for strength in value.split(',')]
+                    profile_data[key] = [item.strip() for item in value.split(',')]
                 else:
-                    profile_data[key] = value.strip()
+                    profile_data[key] = value
 
         return ClientProfile(
             age=int(profile_data['Age']),
@@ -61,27 +64,27 @@ class ClientAgent:
         ]
     
     def format_prompt(self, conversation_history: List[Dict[str, str]], user_message: str) -> str:
-            # Format conversation history into a prompt
-            history = "\n".join([
-                f"{msg['sender']}: {msg['text']}"
-                for msg in conversation_history[-5:]  # Last 5 messages for context
-            ])
+        # Format conversation history into a prompt
+        history = "\n".join([
+            f"{msg['sender']}: {msg['text']}"
+            for msg in conversation_history[-5:]  # Last 5 messages for context
+        ])
 
-            prompt = f"""You are a client seeking psychedelic-assisted therapy. 
-            You have been experiencing the following feelings for about {self.profile.grief_duration} months: {', '.join(self.profile.grief_feelings)}.
-            Your main goals for therapy are to {', '.join(self.profile.integration_goals)}. 
-            You are {self.profile.attitude_to_therapy} about therapy helping you.
+        prompt = f"""You are a client seeking psychedelic-assisted therapy. 
+        You have been experiencing the following feelings for about {self.profile.grief_duration} months: {', '.join(self.profile.grief_feelings)}.
+        Your main goals for therapy are to {', '.join(self.profile.integration_goals)}. 
+        You are {self.profile.attitude_to_therapy} about therapy helping you.
 
-            Previous conversation:
-            {history}
+        Previous conversation:
+        {history}
 
-            You: {user_message}
+        You: {user_message}
 
-            Respond as the client:"""
+        Respond as the client. ONLY PROVIDE THE RESPONSE ITSELF, NOTHING ELSE:"""
 
-            return prompt
+        return prompt
 
     async def complete(self, conversation_history: List[Dict[str, str]], user_message: str) -> str:
         prompt = self.format_prompt(conversation_history, user_message)
-        response = await self.llm.agenerate([prompt])
-        return response[0][0].strip()
+        response = await self.agent.agenerate([prompt], stop=["therapist"])
+        return response.generations[0][0].text.strip()
