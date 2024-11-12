@@ -12,13 +12,14 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 import numpy as np
 
 from agents.retrieval.MultiVectorstoreRetriever import MultiVectorstoreRetriever
+from config import RATE_LIMIT_BREAK
 
 class RateLimiter:
     def __init__(self, max_requests_per_minute: int):
         self.max_requests = max_requests_per_minute
         self.window_size = 60  # seconds
         self.requests = []
-        self.min_pause = 12.0  # Minimum 20 seconds between requests (5 per minute to be safe)
+        self.min_pause = RATE_LIMIT_BREAK  # Minimum 20 seconds between requests (5 per minute to be safe)
         self.last_request_time = 0
     
     def wait_if_needed(self):
