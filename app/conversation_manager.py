@@ -149,7 +149,6 @@ class ConversationManager:
 
         # If not terminated, process through intent classifier
         intent_response = await self.intent_classifier.complete(user_message)
-        print(intent_response)
         
         # RAG
         if intent_response is not None and intent_response['result'] != " I don't know.":
