@@ -143,6 +143,7 @@ class ConversationManager:
             
             \n National Suicide Prevention Lifeline: 988
             \n Crisis Text Line: Text HOME to 741741
+            \n Fireside Project: Text or call 62-FIRESIDE (623-473-7433)
             
             \n These services are available 24/7 and have trained professionals who can provide the immediate support you need."""
 
