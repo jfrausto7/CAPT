@@ -1,4 +1,3 @@
-
 from langchain_together import Together
 
 
@@ -8,4 +7,4 @@ class TherapyAgent:
     
     async def complete(self, prompt: str) -> str:
         # TODO: replace with actual integration, chains, & prompts
-        return self.agent.invoke(prompt)
+        return self.agent.invoke(prompt, stop=["client"])
