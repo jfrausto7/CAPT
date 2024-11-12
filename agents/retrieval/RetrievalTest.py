@@ -1,5 +1,5 @@
 from langchain_together import Together
-from MultiVectorstoreRetriever import MultiVectorstoreRetriever
+from agents.retrieval.MultiVectorstoreRetriever import MultiVectorstoreRetriever
 
 
 def create_retrieval_chain(

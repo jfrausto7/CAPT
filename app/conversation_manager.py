@@ -108,7 +108,7 @@ class ConversationManager:
 
         Client: {user_message}
 
-        Respond as the therapist:"""
+        Respond as the therapist. ONLY PROVIDE THE RESPONSE ITSELF, NOTHING ELSE:"""
         
         if is_escalated:
             prompt = f"""IMPORTANT: This conversation requires additional care and sensitivity.
@@ -148,9 +148,10 @@ class ConversationManager:
 
         # If not terminated, process through intent classifier
         intent_response = await self.intent_classifier.complete(user_message)
+        print(intent_response)
         
         # RAG
-        if intent_response is not None:
+        if intent_response is not None and intent_response['result'] != " I don't know.":
             # For RAG-based responses, still check if we need to add safety messaging
             response = intent_response['result']
             if is_escalated:
