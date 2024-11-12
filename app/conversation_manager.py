@@ -223,7 +223,7 @@ class ConversationManager:
         # Initialize retriever
         retriever = MultiVectorstoreRetriever(
             vector_dir=vector_dir,
-            k=4,  # Number of documents to retrieve per query
+            k=10,  # Number of documents to retrieve per query
             score_threshold=0.7,  # Minimum similarity score
             show_progress=show_progress
         )
