@@ -13,6 +13,7 @@ from agents.retrieval.MultiVectorstoreRetriever import MultiVectorstoreRetriever
 from app.chat.Message import Message
 from app.chat.Conversation import Conversation
 from app.safety_mechanisms import SafetyMechanisms
+from config import RATE_LIMIT_BREAK
 
 class ConversationManager:
     def __init__(self, db_path: str = "data/cache_therapy_chat.db"):
@@ -158,7 +159,7 @@ class ConversationManager:
         # Default Fallback TherapyAgent
         else:
             # Default to therapy agent with safety-aware prompt
-            time.sleep(10)
+            time.sleep(RATE_LIMIT_BREAK)
             prompt = self.format_therapy_prompt(conversation_history, user_message, is_escalated)
             return (await self.therapy_agent.complete(prompt)).strip()
 
