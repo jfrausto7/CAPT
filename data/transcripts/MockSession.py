@@ -7,6 +7,7 @@ import random
 
 from agents.ClientAgent import ClientAgent
 from agents.TherapyAgent import TherapyAgent
+from config import RATE_LIMIT_BREAK
 
 # Sample client personas from "Deliberate Practice in Psychedelic-Assisted Therapy"
 PERSONAS = [
@@ -126,11 +127,11 @@ async def run_mock_session(session_id: str, persona: str):
         therapy_prompt = format_therapy_prompt(conversation_history)
         
         # Get therapist response
-        time.sleep(10)  # need this to avoid rate limiting
+        time.sleep(RATE_LIMIT_BREAK)  # need this to avoid rate limiting
         therapist_response = await therapy_agent.complete(therapy_prompt)
         print("THERAPIST RESPONSE:")
         print(therapist_response)
-        time.sleep(10)  # need this to avoid rate limiting
+        time.sleep(RATE_LIMIT_BREAK)  # need this to avoid rate limiting
         timestamp = datetime.now().isoformat()
         
         # Save therapist response

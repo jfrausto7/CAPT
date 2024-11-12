@@ -6,6 +6,7 @@ import re
 import json
 
 from app.clinical_trial_search import search_clinical_trials
+from config import RATE_LIMIT_BREAK
 
 COLLECTIONS = []
 KEY_WORDS = ["ketamine", "mdma", "lsd", "psilocybin"]
@@ -144,7 +145,7 @@ class IntentClassifier:
         # If COLLECTIONS is populated, then we have key words listed in user input so call RAG
         if classified_intent != "Other" and classified_intent != "Clinical_trial_recruitment":
             # Call RAG with the all the appropriate vector databases based on user's key words and key word mapping
-            time.sleep(10)
+            time.sleep(RATE_LIMIT_BREAK)
             relevant_collections = set()
             for collection in COLLECTIONS:
                 relevant_collections.update(self.KEY_WORDS_DATA_MAPPING[collection])
@@ -153,7 +154,7 @@ class IntentClassifier:
             self.qa_chain.retriever.with_collections(relevant_collections)
             return self.qa_chain.invoke({"query": user_input})
         elif classified_intent == "Clinical_trial_recruitment":
-            time.sleep(10)
+            time.sleep(RATE_LIMIT_BREAK)
             return self.handle_clinical_trial_search(user_input)
         else:
             # Call LLM Therapy Agent if classified intent is "Other" (in ConversationManager)

@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 import re
 
+RATE_LIMIT_BREAK = 10
+
 def validate_api_key(key: str) -> bool:
     """
     Validate that the API key matches common formats.

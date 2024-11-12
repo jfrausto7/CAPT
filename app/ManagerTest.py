@@ -2,6 +2,7 @@ import asyncio
 import os
 import time
 from app.conversation_manager import ConversationManager
+from config import RATE_LIMIT_BREAK
 
 async def test_conversation_manager():
     # Use a test database file
@@ -27,7 +28,7 @@ async def test_conversation_manager():
         
     # Test 2: Continue the conversation
     print("\nTest 2: Continuing conversation...")
-    time.sleep(10)
+    time.sleep(RATE_LIMIT_BREAK)
     result = await manager.create_message(
         "I'm interested in learning more about psilocybin.",
         conversation_id
@@ -47,7 +48,7 @@ async def test_conversation_manager():
         print("Failed to retrieve conversation")
         
     # Test 4: Test clinical trial query
-    time.sleep(10)
+    time.sleep(RATE_LIMIT_BREAK)
     print("\nTest 4: Testing clinical trial query...")
     result = await manager.create_message(
         "Are there any MDMA clinical trials for PTSD in California?",
