@@ -110,15 +110,36 @@ class IntentClassifier:
 
     def create_prompt_template(self, user_input: str) -> PromptTemplate:
         template = """
-        You are an intention classifier. You will be provided with a user input inquiring about psychedelic drugs and clinical trials. 
-        A user's input can fall into the following intentions {intentions}.
+        You are an intention classifier. You will be provided with a user input inquiring about psychedelic drugs and clinical trials.
         
-        Your task is to classify the user's input into EXACTLY one of the following intents: {intentions}. Respond only with the intention, no other explanation.
-        
-        User input: {user_input}
-    
-        Intention is: 
-        """
+        Your task is to classify the user's input into EXACTLY one of the following intents: {intentions}.
+
+        Here are some examples:
+        -----------------------
+        Input: "What dosage of psilocybin should I take for my first time?"
+        CLASSIFIED INTENTION: Before_experience
+
+        Input: "I'm having intense anxiety during my session, what should I do?"
+        CLASSIFIED INTENTION: During_experience
+
+        Input: "How long have psychedelics been used in traditional medicine?"
+        CLASSIFIED INTENTION: General_knowledge
+
+        Input: "Can you help me integrate my recent ayahuasca experience?"
+        CLASSIFIED INTENTION: After_experience
+
+        Input: "Where can I sign up for MDMA therapy studies?"
+        CLASSIFIED INTENTION: Clinical_trial_recruitment
+
+        Input: "What's the weather like today?"
+        CLASSIFIED INTENTION: Other
+        -----------------------
+
+        Input to classify: {user_input}
+
+        DO NOT include any other text, punctuation, or explanation. Only output one intention.
+
+        CLASSIFIED INTENTION:"""
 
         self.prompt = PromptTemplate.from_template(template)
         self.prompt.format(user_input=user_input, intentions=self.INTENTIONS)
