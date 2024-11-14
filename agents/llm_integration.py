@@ -114,7 +114,9 @@ class IntentClassifier:
         template = """
         You are an intention classifier. You will be provided with a user input inquiring about psychedelic drugs and clinical trials.
         
-        Your task is to classify the user's input into EXACTLY one of the following intents: {intentions}.
+        Your task is to classify the user's input into EXACTLY one of the following intents: {intentions}. 
+        
+        DO NOT classify input as 'Clinical_trial_recruitment' unless the input specifically mentions a drug and a location.
 
         Here are some examples:
         -----------------------
