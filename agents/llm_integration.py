@@ -106,7 +106,9 @@ class IntentClassifier:
     def __init__(self, model: str, temperature: int, max_tokens: int, qa_chain: RetrievalQA):
         # Set up LLM agent and retrieval agent
         self.intent_model = Together(model=model, temperature=temperature, max_tokens=max_tokens)
+        self.formatter = Together(model=model, temperature=temperature, max_tokens=max_tokens*4)
         self.qa_chain = qa_chain
+        self.max_tokens = max_tokens
 
     def create_prompt_template(self, user_input: str) -> PromptTemplate:
         template = """
@@ -157,26 +159,119 @@ class IntentClassifier:
                 return intent
         # If no intent is found default to Other
         return "Other"
+    
+    def format_therapeutic_response(self, text: str) -> str:
+        """
+        Format raw information into a therapeutic response maintaining CAPT's persona.
+        
+        Args:
+            text (str): Raw response text
+            
+        Returns:
+            str: Formatted therapeutic response
+        """
+        prompt = f"""As CAPT, a compassionate psychedelic-assisted therapist, rephrase this information 
+        in an empathetic and supportive way while maintaining accuracy. Keep the same information but 
+        make it sound like it's coming from a therapist in conversation:
+
+        Information to rephrase: {text}
+
+        Respond in CAPT's voice. ONLY PROVIDE THE REPHRASED RESPONSE, NO PREAMBLE OR EXPLANATIONS:"""
+        
+        formatted_response = self.formatter.invoke(prompt).strip()
+        return formatted_response
+
+    def clean_and_format_rag_response(self, response: dict) -> dict:
+        """
+        Clean up RAG response and format it in therapeutic voice.
+        Only removes quotes and backticks from start/end while preserving them within text.
+        
+        Args:
+            response (dict): Raw response from the QA chain
+            
+        Returns:
+            dict: Cleaned and therapeutically formatted response
+        """
+        if not response or not isinstance(response, dict):
+            return {"result": ""}
+            
+        # Extract the main response text
+        result = response.get("result", "")
+
+        # Format the cleaned response in therapeutic voice
+        time.sleep(RATE_LIMIT_BREAK)  # Respect rate limiting
+        result = self.format_therapeutic_response(result)
+
+        print("ORIGINAL RESPONSE:")
+        print(result)
+        
+        if isinstance(result, str):
+            # Remove common artifacts
+            artifacts = [
+                "the text",
+                "The text",
+                "According to the text",
+                "Based on the text",
+                "From the text",
+                "In the text",
+            ]
+            
+            # Clean up the beginning of the response
+            for artifact in artifacts:
+                if result.startswith(artifact):
+                    result = result.replace(artifact, "", 1).lstrip(" ,:;.-")
+                result = result.replace(f"\n{artifact}", "\n")
+
+            # Function to remove specific characters from start and end only
+            def strip_chars(text, chars):
+                while text and text[0] in chars:
+                    text = text[1:]
+                while text and text[-1] in chars:
+                    text = text[:-1]
+                return text
+                
+            # Remove quotes and backticks only from start and end
+            chars_to_strip = {'"', "'", '`', '"', '"'}  # Added smart quotes
+            result = strip_chars(result, chars_to_strip)
+            
+            # Clean up triple quotes at start/end
+            while result.startswith('"""'):
+                result = result[3:]
+            while result.endswith('"""'):
+                result = result[:-3]
+                
+            # Clean up any double spaces or excessive newlines
+            result = " ".join(result.split())
+            result = "\n".join(line.strip() for line in result.split("\n") if line.strip())
+            
+            print("FORMATTED RESPONSE:")
+            print(result)
+            
+        return {"result": result}
 
     def retrieval_chain(self, user_input: str) -> str:
         # classify intent
         classified_intent = self.classify_intent(user_input)
 
         # Handle the 3 possible workflows after classifying intent
-        # If COLLECTIONS is populated, then we have key words listed in user input so call RAG
         if classified_intent != "Other" and classified_intent != "Clinical_trial_recruitment":
-            # Call RAG with the all the appropriate vector databases based on user's key words and key word mapping
+            # Call RAG with the appropriate vector databases
             time.sleep(RATE_LIMIT_BREAK)
             relevant_collections = set()
             for collection in COLLECTIONS:
                 relevant_collections.update(self.KEY_WORDS_DATA_MAPPING[collection])
             if classified_intent == "After_experience":
                 relevant_collections.add("guidelines_integration")
+            
+            # Enhance the query to maintain therapeutic context
+            therapeutic_query = f"""As a psychedelic-assisted therapist, I need to answer: {user_input}
+            Please provide information that would be helpful in a therapeutic context. Use no more than {self.max_tokens} tokens."""
+            
             self.qa_chain.retriever.with_collections(relevant_collections)
-            return self.qa_chain.invoke({"query": user_input})
+            raw_response = self.qa_chain.invoke({"query": therapeutic_query})
+            return self.clean_and_format_rag_response(raw_response)
         elif classified_intent == "Clinical_trial_recruitment":
             time.sleep(RATE_LIMIT_BREAK)
             return self.handle_clinical_trial_search(user_input)
         else:
-            # Call LLM Therapy Agent if classified intent is "Other" (in ConversationManager)
             return None

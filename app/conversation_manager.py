@@ -18,6 +18,7 @@ from config import RATE_LIMIT_BREAK
 class ConversationManager:
     def __init__(self, db_path: str = "data/cache_therapy_chat.db"):
         self.db_path = db_path
+        self.max_tokens = 512
         self.init_db()
         self.setup_agents()
         self.safety_filter = SafetyMechanisms(self.therapy_agent)
@@ -48,7 +49,7 @@ class ConversationManager:
         self.therapy_agent = TherapyAgent(
             model="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
             temperature=0.3,
-            max_tokens=512
+            max_tokens=self.max_tokens
         )
 
         self.retrieval_model = Together(
@@ -108,7 +109,7 @@ class ConversationManager:
 
         Client: {user_message}
 
-        Respond as the therapist. ONLY PROVIDE THE RESPONSE ITSELF, NOTHING ELSE:"""
+        Respond as the therapist in {self.max_tokens} tokens or less. ONLY PROVIDE THE RESPONSE ITSELF, NOTHING ELSE:"""
         
         if is_escalated:
             prompt = f"""IMPORTANT: This conversation requires additional care and sensitivity.
