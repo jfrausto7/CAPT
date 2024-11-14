@@ -89,7 +89,7 @@ async def run_mock_session(session_id: str, persona: str):
     opening = opening_statements[len(conversation_history) % len(opening_statements)]
     
     # Save the opening statement
-    with open("therapy_transcripts.csv", "a", newline="", encoding='utf-8') as f:
+    with open("data/transcripts/therapy_transcripts.csv", "a", newline="", encoding='utf-8') as f:
         writer = csv.writer(f)
         timestamp = datetime.now().isoformat()
         writer.writerow([session_id, timestamp, "therapist", opening])
@@ -101,8 +101,8 @@ async def run_mock_session(session_id: str, persona: str):
         "timestamp": timestamp
     })
     
-    # Simulate 5-7 exchanges
-    num_exchanges = random.randint(5, 7)
+    # Simulate random number of exchanges
+    num_exchanges = random.randint(5, 25)
     
     for _ in range(num_exchanges):
         # Get client response
@@ -112,7 +112,7 @@ async def run_mock_session(session_id: str, persona: str):
         timestamp = datetime.now().isoformat()
         
         # Save client response
-        with open("therapy_transcripts.csv", "a", newline="", encoding='utf-8') as f:
+        with open("data/transcripts/therapy_transcripts.csv", "a", newline="", encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([session_id, timestamp, "client", client_response])
         
@@ -135,7 +135,7 @@ async def run_mock_session(session_id: str, persona: str):
         timestamp = datetime.now().isoformat()
         
         # Save therapist response
-        with open("therapy_transcripts.csv", "a", newline="", encoding='utf-8') as f:
+        with open("data/transcripts/therapy_transcripts.csv", "a", newline="", encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([session_id, timestamp, "therapist", therapist_response])
         
@@ -151,7 +151,7 @@ async def run_mock_session(session_id: str, persona: str):
 
 async def main():
     # Create or check if CSV exists with headers
-    with open("therapy_transcripts.csv", "a", newline="", encoding='utf-8') as f:
+    with open("data/transcripts/therapy_transcripts.csv", "a", newline="", encoding='utf-8') as f:
         writer = csv.writer(f)
         # Check if file is empty
         f.seek(0, 2)  # Seek to end of file
@@ -177,7 +177,7 @@ async def main():
         if input("\nRun another session? (y/n): ").lower() != 'y':
             break
 
-    print("\nAll sessions completed. Transcripts saved to therapy_transcripts.csv")
+    print("\nAll sessions completed. Transcripts saved to data/transcripts/therapy_transcripts.csv")
 
 if __name__ == "__main__":
     asyncio.run(main())
