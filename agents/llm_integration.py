@@ -44,7 +44,7 @@ class IntentClassifier:
         """
         
         # Use the existing LLM to extract information
-        response = self.intent_model.invoke(extraction_prompt).strip()
+        response = self.formatter.invoke(extraction_prompt).strip()
         response = response.split('"""')[0]
         
         try:
@@ -204,8 +204,6 @@ class IntentClassifier:
         time.sleep(RATE_LIMIT_BREAK)  # Respect rate limiting
         result = self.format_therapeutic_response(result)
 
-        print("ORIGINAL RESPONSE:")
-        print(result)
         
         if isinstance(result, str):
             # Remove common artifacts
@@ -247,9 +245,6 @@ class IntentClassifier:
             # Clean up any double spaces or excessive newlines
             result = " ".join(result.split())
             result = "\n".join(line.strip() for line in result.split("\n") if line.strip())
-            
-            print("FORMATTED RESPONSE:")
-            print(result)
             
         return {"result": result}
 

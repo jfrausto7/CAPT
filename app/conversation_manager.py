@@ -177,8 +177,6 @@ class ConversationManager:
         # Update context with new message
         context = await self.context_manager.update_context(context, [current_message])
         formatted_context = self.context_manager.format_context_for_prompt(context)
-        print("FORMATTED CONTEXT:")
-        print(formatted_context)
         
         # RAG
         if intent_response is not None and intent_response['result'] != " I don't know.":
