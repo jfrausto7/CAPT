@@ -216,6 +216,8 @@ class IntentClassifier:
                 "Based on the text",
                 "From the text",
                 "In the text",
+                "corrupted file",
+                "characters and symbols"
             ]
             
             # Clean up the beginning of the response
