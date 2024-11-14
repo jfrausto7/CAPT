@@ -10,6 +10,7 @@ from langchain_together import Together
 from agents.TherapyAgent import TherapyAgent
 from agents.llm_integration import IntentClassifier
 from agents.retrieval.MultiVectorstoreRetriever import MultiVectorstoreRetriever
+from app.chat.ContextManager import ContextManager, ContextWindow, ConversationContext
 from app.chat.Message import Message
 from app.chat.Conversation import Conversation
 from app.safety_mechanisms import SafetyMechanisms
@@ -23,6 +24,8 @@ class ConversationManager:
         self.setup_agents()
         self.safety_filter = SafetyMechanisms(self.therapy_agent)
         self.is_terminated = False
+        self.context_manager = ContextManager(self.therapy_agent)
+        self.contexts: Dict[str, ConversationContext] = {}
 
     def init_db(self):
         with self.get_db() as conn:
@@ -43,6 +46,23 @@ class ConversationManager:
                     FOREIGN KEY (conversation_id) REFERENCES conversations (id)
                 )
             """)
+
+    def get_or_create_context(self, conversation_id: str) -> ConversationContext:
+        """Get existing context or create new one for a conversation."""
+        if conversation_id not in self.contexts:
+            self.contexts[conversation_id] = ConversationContext(
+                critical_context=[],
+                therapeutic_context=ContextWindow(
+                    messages=[],
+                    summary="",
+                    key_points=[],
+                    emotional_state="",
+                    therapy_goals=[],
+                    last_summary_index=0
+                ),
+                background_context=""
+            )
+        return self.contexts[conversation_id]
 
     def setup_agents(self):
         # Initialize both agents
@@ -94,20 +114,14 @@ class ConversationManager:
         )
         return [self._row_to_message(row) for row in cursor.fetchall()]
 
-    def format_therapy_prompt(self, conversation_history: List[Message], user_message: str, is_escalated: bool = False) -> str:
-        history = "\n".join([
-            f"{msg.sender}: {msg.text}" 
-            for msg in conversation_history[-5:]
-        ])
-        
+    def format_therapy_prompt(self, context:str, user_message: str, is_escalated: bool = False) -> str:
         prompt = f"""You are CAPT, a compassionate and skilled therapist specializing in psychedelic-assisted therapy. 
         Your responses should be empathetic, non-judgmental, and focused on creating a safe space for clients.
         Always maintain professional boundaries and ethical guidelines.
 
-        Previous conversation:
-        {history}
+        {context}
 
-        Client: {user_message}
+        Client message: {user_message}
 
         Respond as the therapist in {self.max_tokens} tokens or less. ONLY PROVIDE THE RESPONSE ITSELF, NOTHING ELSE:"""
         
@@ -120,13 +134,16 @@ class ConversationManager:
             
         return prompt
 
-    async def get_response(self, conversation_history: List[Message], user_message: str) -> str:
+    async def get_response(self, conversation_history: List[Message], user_message: str, conversation_id: Optional[str] = None) -> str:
         # Create message and conversation objects for safety processing
         current_message = Message(
             text=user_message,
             sender="user",
             timestamp=datetime.now()
         )
+
+        # Get or create conversation context
+        context = self.get_or_create_context(conversation_id)
 
         current_conversation = Conversation(
             id="",
@@ -140,6 +157,11 @@ class ConversationManager:
         
         if is_terminated or self.is_terminated:
             self.is_terminated = True
+            context.critical_context.append({
+                "type": "safety_termination",
+                "timestamp": datetime.now().isoformat(),
+                "reason": "Crisis intervention required"
+            })
             return """I need to pause our conversation here. Your safety is my top priority, and I'm concerned about what you've shared. Please immediately contact emergency services or a crisis hotline:
             
             \n National Suicide Prevention Lifeline: 988
@@ -150,6 +172,13 @@ class ConversationManager:
 
         # If not terminated, process through intent classifier
         intent_response = await self.intent_classifier.complete(user_message)
+        time.sleep(RATE_LIMIT_BREAK)
+
+        # Update context with new message
+        context = await self.context_manager.update_context(context, [current_message])
+        formatted_context = self.context_manager.format_context_for_prompt(context)
+        print("FORMATTED CONTEXT:")
+        print(formatted_context)
         
         # RAG
         if intent_response is not None and intent_response['result'] != " I don't know.":
@@ -157,13 +186,45 @@ class ConversationManager:
             response = intent_response['result']
             if is_escalated:
                 response += "\n\nIf you're feeling overwhelmed or need immediate support, please don't hesitate to reach out to mental health professionals or emergency services."
+                # Add critical context for safety termination
+                context.critical_context.append({
+                    "type": "safety_termination",
+                    "timestamp": datetime.now().isoformat(),
+                    "reason": "Crisis intervention required"
+                })
+            
+            # Store therapy response in context
+            therapeutic_window = context.therapeutic_context
+            therapeutic_window.messages.append(Message(
+                text=response,
+                sender="assistant",
+                timestamp=datetime.now()
+            ))
             return response
         # Default Fallback TherapyAgent
         else:
             # Default to therapy agent with safety-aware prompt
             time.sleep(RATE_LIMIT_BREAK)
-            prompt = self.format_therapy_prompt(conversation_history, user_message, is_escalated)
-            return (await self.therapy_agent.complete(prompt)).strip()
+            prompt = self.format_therapy_prompt(formatted_context, user_message, is_escalated)
+
+            # Get response from therapy agent
+            response = (await self.therapy_agent.complete(prompt)).strip()
+            
+            # Store therapy response in context
+            therapeutic_window = context.therapeutic_context
+            therapeutic_window.messages.append(Message(
+                text=response,
+                sender="assistant",
+                timestamp=datetime.now()
+            ))
+            
+            # Update emotional state if needed
+            if len(therapeutic_window.messages) % 3 == 0:  # Update every 3 messages
+                therapeutic_window.emotional_state = await self.context_manager.assess_emotional_state(
+                    therapeutic_window.messages[-3:]
+                )
+            
+            return response
 
     async def create_message(self, text: str, conversation_id: Optional[str] = None) -> Dict:
         with self.get_db() as conn:
@@ -188,7 +249,7 @@ class ConversationManager:
             )
             
             messages = self.get_conversation_messages(conn, conv_id)
-            response_text = await self.get_response(messages, text)
+            response_text = await self.get_response(messages, text, conv_id)
             
             response_message = Message(
                 text=response_text,
