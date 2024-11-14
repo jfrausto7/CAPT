@@ -22,20 +22,46 @@ class SafetyMechanisms:
         self.explicit_content_patterns: Set[str] = {
             r'\b(sex|porn|explicit|nude|naked)\b',
             r'\b(fuck|shit|damn|bitch)\b',
-            # TODO: Add more patterns as needed
+            r'\b(sex(ual)?|porn(ography)?|explicit|nude|naked|nsfw)\b',
+            r'\b(f[u\*@]ck|sh[i\*@]t|b[i\*@]tch|d[a\*@]mn|ass(?:hole)?)\b',
+            r'\b(dick|cock|penis|vagina|pussy|boob|breast|anal|cum|semen)\b',
+            r'\b(masturbat(e|ion)|orgasm|erotic|arousal|foreplay)\b',
+            r'\b(hook[ -]?up|one[ -]?night[ -]?stand|friends?[ -]?with[ -]?benefits)\b',
+            r'\b(gore|blood|brutal|mutilat(e|ion)|dismember)\b',
+            r'\b(torture|maim|slaughter|massacre|execute|murder)\b',
+            r'\b(graphic|disturbing|nsfl|trigger)\b'
         }
         
         self.hate_speech_indicators: List[Tuple[str, float]] = [
-            ("hate", 0.8),
-            ("kill", 0.7),
-            ("die", 0.6),
+            ("hate", 0.9),
+            ("kill", 1.0),
+            ("die", 0.8),
             ("racist", 0.9),
             ("terrorist", 0.8),
-            # TODO: Add more indicators with weights
+            ("vermin", 0.4),
+            ("parasite", 0.3),
+            ("scum", 0.4),
+            ("filth", 0.3),
+            ("infidel", 0.8),
+            ("heretic", 0.7),
+            ("kafir", 0.8),
+            ("goyim", 0.7),
+            ("exterminate", 0.9),
+            ("eliminate", 0.7),
+            ("cleanse", 0.8),
+            ("purge", 0.8),
         ]
         
         # Based on research papers and crisis hotline trigger words
         self.self_harm_phrases: List[str] = [
+            "i can't handle this",
+            "i'm so done",
+            "i feel numb",
+            "i can't keep going",
+            "i feel worthless",
+            "i hate myself",
+            "i just want it to end",
+            "i need to escape",
             "want to die",
             "kill myself",
             "end it all",
@@ -50,7 +76,8 @@ class SafetyMechanisms:
         
         self.self_harm_keywords: Set[str] = {
             "suicide", "suicidal", "kill", "die", "death", "hurt", 
-            "pain", "cutting", "cut", "overdose", "pills"
+            "pain", "cutting", "cut", "overdose", "pills", "escape",
+            "numb", "hate", "worth", "alone", "despair"
         }
 
     def process_message(self, message: Message, conversation: Conversation) -> Tuple[bool, bool]:
