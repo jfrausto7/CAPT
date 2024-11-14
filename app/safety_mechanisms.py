@@ -70,6 +70,7 @@ class SafetyMechanisms:
             "cant go on",
             "cant take it anymore",
             "hurt myself",
+            "hurting myself",
             "suicide",
             "end my life"
         ]
@@ -77,7 +78,7 @@ class SafetyMechanisms:
         self.self_harm_keywords: Set[str] = {
             "suicide", "suicidal", "kill", "die", "death", "hurt", 
             "pain", "cutting", "cut", "overdose", "pills", "escape",
-            "numb", "hate", "worth", "alone", "despair"
+            "numb", "hate", "worth", "alone", "despair", "hurting"
         }
 
     def process_message(self, message: Message, conversation: Conversation) -> Tuple[bool, bool]:

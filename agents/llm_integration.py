@@ -130,7 +130,7 @@ class IntentClassifier:
         Input: "Can you help me integrate my recent ayahuasca experience?"
         CLASSIFIED INTENTION: After_experience
 
-        Input: "Where can I sign up for MDMA therapy studies?"
+        Input: "Where can I find MDMA clinical studies in California?"
         CLASSIFIED INTENTION: Clinical_trial_recruitment
 
         Input: "What's the weather like today?"
@@ -139,7 +139,7 @@ class IntentClassifier:
 
         Input to classify: {user_input}
 
-        DO NOT include any other text, punctuation, or explanation. Only output one intention.
+        DO NOT include any other text, punctuation, or explanation. ONLY OUTPUT ONE INTENTION.
 
         CLASSIFIED INTENTION:"""
 
