@@ -14,7 +14,7 @@ nltk.download('stopwords')
 from agents.TherapyAgent import TherapyAgent
 
 class SafetyMechanisms:
-    def __init__(self, therapy_agent: TherapyAgent, escalation_threshold: float = 0.8):
+    def __init__(self, therapy_agent: TherapyAgent, escalation_threshold: float = 0.6):
         self.therapy_agent = therapy_agent
         self.escalation_threshold = escalation_threshold
         self.together_model = Together(model="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo", temperature=0.3, max_tokens=512)
