@@ -1,10 +1,11 @@
 # CAPT: Conversational Agent for Psychedelic-assisted Therapy
 An LLM-powered conversational agent designed to enhance psychedelic therapy through preparation, real-time harm reduction, and post-session integration support in a simulated environment.
 
-## Expected Features
+## Features
 - Conversational AI interface for therapy support
 - Integration with LangChain for advanced language model capabilities
 - FastAPI backend for efficient API handling
+- Evaluation framework for all components
 
 ## Setup
 1. Clone the repository
@@ -21,7 +22,12 @@ An LLM-powered conversational agent designed to enhance psychedelic therapy thro
 |--------...
 
 ```
-5. Run the application: `python main.py`
 
 ## Usage
-[TODO]
+
+### Running CAPT locally
+Run the application with: `python main.py`
+
+### Running evalutions
+Run any evaluation script in the evaluation directory like so: `python -m evaluation.RAG.RAG_evaluation`
+
