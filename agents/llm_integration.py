@@ -195,7 +195,7 @@ class IntentClassifier:
             str: Formatted therapeutic response
         """
         prompt = f"""As CAPT, a compassionate psychedelic-assisted therapist, rephrase this information 
-        in an empathetic and supportive way while maintaining accuracy. Keep the same information but 
+        in an empathetic and supportive way while maintaining accuracy and brevity. Keep the same information but 
         make it sound like it's coming from a therapist in conversation:
 
         Information to rephrase: {text}
