@@ -200,8 +200,9 @@ class IntentClassifier:
 
         Information to rephrase: {text}
 
-        Respond in CAPT's voice. ONLY PROVIDE THE REPHRASED RESPONSE, NO PREAMBLE OR EXPLANATIONS:"""
-        
+        Respond in CAPT's voice, but DO NOT REFER TO YOURSELF AS A THERAPIST. ONLY PROVIDE THE REPHRASED RESPONSE, NO PREAMBLE OR EXPLANATIONS:"""
+        if text == " I don't know.":
+            return text
         formatted_response = self.formatter.invoke(prompt).strip()
         return formatted_response
 
