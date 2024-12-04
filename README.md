@@ -6,6 +6,7 @@ An LLM-powered conversational agent designed to enhance psychedelic therapy thro
 ## Features
 - Conversational AI interface for therapy support
 - Integration with LangChain for advanced language model capabilities
+- FAISS for efficient vector similarity search
 - FastAPI backend for efficient API handling
 - Evaluation framework for all components
 
