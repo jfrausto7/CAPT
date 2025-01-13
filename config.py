@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 import re
 
-RATE_LIMIT_BREAK = 10
+RATE_LIMIT_BREAK = 1
 
 def validate_api_key(key: str) -> bool:
     """
